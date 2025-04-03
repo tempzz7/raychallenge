@@ -29,6 +29,18 @@ app = dash.Dash(
     assets_folder='assets'
 )
 
+# Correções de bugs
+min_date = pd.to_datetime('2023-01-01')
+max_date = pd.to_datetime('now')
+
+def truncate_title(title, max_length=40):
+    return title[:max_length] + '...' if len(title) > max_length else title
+
+def safe_engagement_rate(row):
+    if row['visualizacoes'] == 0:
+        return 0
+    return round(((row['curtidas'] + row['comentarios']) / row['visualizacoes'] * 100), 2)
+
 # Tentar carregar os dados com tratamento de erro detalhado
 try:
     logger.info(f"Tentando carregar o arquivo CSV de {os.getcwd()}/f1_2024_highlights.csv")
@@ -71,7 +83,7 @@ try:
     
     try:
         # Taxa de engajamento
-        df['taxa_engajamento'] = ((df['curtidas'] + df['comentarios']) / df['visualizacoes'] * 100).round(2)
+        df['taxa_engajamento'] = df.apply(safe_engagement_rate, axis=1)
         
         # Média diária de visualizações - corrigindo o cálculo que estava causando erro
         hoje = pd.to_datetime('today')
@@ -176,6 +188,11 @@ except Exception as e:
     qtd_mencoes = 0
     media_crescimento = 0
 
+# Aplicar correções ao DataFrame
+if not df.empty:
+    df['titulo_truncado'] = df['titulo'].apply(truncate_title)
+    df['taxa_engajamento'] = df.apply(safe_engagement_rate, axis=1)
+
 app.layout = dbc.Container([
     # Título principal com narrativa
     dbc.Row([
@@ -257,13 +274,13 @@ app.layout = dbc.Container([
                             html.Label("Período:", className="text-light"),
                             dcc.DatePickerRange(
                                 id='date-picker',
-                                start_date=datetime(2023, 1, 1),
-                                end_date=datetime.now(),
+                                start_date=min_date,
+                                end_date=max_date,
                                 display_format='DD/MM/YYYY',
                                 className='custom-datepicker',
-                                min_date_allowed=datetime(2023, 1, 1),
-                                max_date_allowed=datetime.now(),
-                                initial_visible_month=datetime.now(),
+                                min_date_allowed=min_date,
+                                max_date_allowed=max_date,
+                                initial_visible_month=max_date,
                                 style={
                                     'backgroundColor': '#2b3e50',
                                     'color': '#ecf0f1',
@@ -582,42 +599,23 @@ def update_insights(sort_by, start_date, end_date):
      Input("date-picker", "end_date")]
 )
 def update_graph_insights(sort_by, start_date, end_date):
-    logger.info(f"Atualizando insights dos gráficos com filtros: sort_by={sort_by}, start_date={start_date}, end_date={end_date}")
-    
     if df.empty:
-        return "Nenhum dado disponível para análise." * 7
+        return ["Nenhum dado disponível para análise."] * 7
     
     try:
         filtered_df = df.copy()
         
         # Aplicar filtros de data se estiverem definidos
         if start_date and end_date:
-            try:
-                start = pd.to_datetime(start_date)
-                end = pd.to_datetime(end_date)
-                filtered_df = filtered_df[
-                    (filtered_df['data_publicacao'] >= start) &
-                    (filtered_df['data_publicacao'] <= end)
-                ]
-                logger.info(f"Dados filtrados por data: {start} a {end}, shape resultante: {filtered_df.shape}")
-            except Exception as e:
-                logger.error(f"Erro ao filtrar por data nos insights: {e}")
-        
-        # Aplicar ordenação se estiver definida
-        if sort_by:
-            try:
-                column, order = sort_by.split('_')
-                if column in filtered_df.columns:
-                    filtered_df = filtered_df.sort_values(
-                        by=column,
-                        ascending=(order == 'asc')
-                    )
-                    logger.info(f"Dados ordenados por {column} {'ascendente' if order == 'asc' else 'descendente'}")
-            except Exception as e:
-                logger.error(f"Erro ao ordenar insights: {e}")
+            start = pd.to_datetime(start_date)
+            end = pd.to_datetime(end_date)
+            filtered_df = filtered_df[
+                (filtered_df['data_publicacao'] >= start) &
+                (filtered_df['data_publicacao'] <= end)
+            ]
         
         if filtered_df.empty:
-            return "Nenhum dado disponível para o período selecionado." * 7
+            return ["Nenhum dado disponível para o período selecionado."] * 7
         
         # Gerar insights baseados nos dados filtrados
         views_insight = f"Os picos de visualizações coincidem com as corridas mais disputadas da temporada. Máximo: {filtered_df['visualizacoes'].max():,} visualizações."
@@ -634,12 +632,12 @@ def update_graph_insights(sort_by, start_date, end_date):
         
         seasons_insight = "A temporada 2024 está gerando 23% mais engajamento por vídeo comparada à temporada 2023."
         
-        logger.info("Insights dos gráficos atualizados com sucesso")
-        return views_insight, engagement_insight, top_videos_insight, correlation_insight, distribution_insight, growth_insight, seasons_insight
+        return [views_insight, engagement_insight, top_videos_insight, correlation_insight, 
+                distribution_insight, growth_insight, seasons_insight]
         
     except Exception as e:
-        logger.error(f"Erro ao atualizar insights dos gráficos: {e}", exc_info=True)
-        return "Erro ao gerar insights." * 7
+        logger.error(f"Erro ao atualizar insights dos gráficos: {e}")
+        return ["Erro ao gerar insights."] * 7
 
 @app.callback(
     [Output("total-videos", "children"),
@@ -707,319 +705,97 @@ def update_metrics(sort_by, start_date, end_date):
      Input("date-picker", "end_date")]
 )
 def update_graphs(sort_by, start_date, end_date):
-    logger.info(f"Atualizando gráficos com filtros: sort_by={sort_by}, start_date={start_date}, end_date={end_date}")
-    
-    empty_fig = {
-        "layout": {
-            "xaxis": {"visible": False},
-            "yaxis": {"visible": False},
-            "annotations": [
-                {
-                    "text": "Nenhum dado disponível",
-                    "xref": "paper",
-                    "yref": "paper",
-                    "showarrow": False,
-                    "font": {"size": 20}
-                }
-            ],
-            "plot_bgcolor": 'rgba(0,0,0,0)',
-            "paper_bgcolor": 'rgba(0,0,0,0)',
-        }
-    }
-    
     if df.empty:
-        logger.warning("DataFrame vazio, retornando gráficos vazios")
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig
+        return [go.Figure() for _ in range(7)]
     
-    try:
-        filtered_df = df.copy()
-        logger.info(f"Filtrando dados, shape inicial: {filtered_df.shape}")
-        
-        # Aplicar filtros de data se estiverem definidos
-        if start_date and end_date:
-            try:
-                start = pd.to_datetime(start_date)
-                end = pd.to_datetime(end_date)
-                filtered_df = filtered_df[
-                    (filtered_df['data_publicacao'] >= start) &
-                    (filtered_df['data_publicacao'] <= end)
-                ]
-                logger.info(f"Dados filtrados por data: {start} a {end}, shape resultante: {filtered_df.shape}")
-                
-                if filtered_df.empty:
-                    logger.warning("Nenhum dado após filtro de data")
-                    return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig
-            except Exception as e:
-                logger.error(f"Erro ao filtrar por data: {e}")
-                return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig
-        
-        # Aplicar ordenação se estiver definida
-        if sort_by:
-            try:
-                column, order = sort_by.split('_')
-                if column in filtered_df.columns:
-                    filtered_df = filtered_df.sort_values(
-                        by=column,
-                        ascending=(order == 'asc')
-                    )
-                    logger.info(f"Dados ordenados por {column} {'ascendente' if order == 'asc' else 'descendente'}")
-                    logger.info(f"Primeiros 5 valores após ordenação: {filtered_df[column].head().tolist()}")
-                else:
-                    logger.warning(f"Coluna {column} não encontrada para ordenação")
-            except Exception as e:
-                logger.error(f"Erro ao ordenar dados: {e}")
-                return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig
-        
-        # Verificar se ainda temos dados após a filtragem
-        if filtered_df.empty:
-            logger.warning("DataFrame vazio após filtros, retornando gráficos vazios")
-            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig
-        
-        # Validar colunas necessárias
-        required_columns = ['data_publicacao', 'visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento', 'media_visualizacoes_diarias']
-        missing_columns = [col for col in required_columns if col not in filtered_df.columns]
-        if missing_columns:
-            logger.error(f"Colunas necessárias ausentes: {missing_columns}")
-            return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig
-        
-        # Verificar valores nulos nas colunas principais
-        null_counts = {col: filtered_df[col].isna().sum() for col in required_columns if col in filtered_df.columns}
-        logger.info(f"Contagem de valores nulos: {null_counts}")
-        
-        # 1. Gráfico de visualizações ao longo do tempo
-        try:
-            # Certifique-se de que os dados estão ordenados por data
-            temp_df = filtered_df.sort_values('data_publicacao')
-            views_fig = px.line(
-                temp_df,
-                x='data_publicacao',
-                y='visualizacoes',
-                title='Visualizações ao Longo do Tempo',
-                template='plotly_dark'
-            )
-            views_fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                xaxis_title="Data de Publicação",
-                yaxis_title="Visualizações",
-                title_font_color='#9b59b6',
-                font_color='#ecf0f1'
-            )
-            logger.info("Gráfico de visualizações criado com sucesso")
-        except Exception as e:
-            logger.error(f"Erro ao criar gráfico de visualizações: {e}")
-            views_fig = empty_fig
-        
-        # 2. Gráfico de engajamento ao longo do tempo
-        try:
-            engagement_fig = px.line(
-                filtered_df.sort_values('data_publicacao'),
-                x='data_publicacao',
-                y=['curtidas', 'comentarios'],
-                title='Engajamento ao Longo do Tempo',
-                template='plotly_dark'
-            )
-            engagement_fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                xaxis_title="Data de Publicação",
-                yaxis_title="Quantidade",
-                title_font_color='#9b59b6',
-                font_color='#ecf0f1'
-            )
-            logger.info("Gráfico de engajamento criado com sucesso")
-        except Exception as e:
-            logger.error(f"Erro ao criar gráfico de engajamento: {e}")
-            engagement_fig = empty_fig
-        
-        # 3. Top vídeos por visualizações
-        try:
-            top_videos = filtered_df.sort_values('visualizacoes', ascending=False).head(10)
-            if not top_videos.empty:
-                top_videos['titulo_curto'] = top_videos['titulo'].apply(lambda x: x[:50] + '...' if len(x) > 50 else x)
-                top_videos_fig = px.bar(
-                    top_videos,
-                    y='titulo_curto',
-                    x='visualizacoes',
-                    orientation='h',
-                    title='Top 10 Vídeos por Visualizações',
-                    template='plotly_dark',
-                    hover_data=['curtidas', 'comentarios', 'data_publicacao']
-                )
-                top_videos_fig.update_layout(
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                    xaxis_title="Visualizações",
-                    yaxis_title="Título",
-                    title_font_color='#9b59b6',
-                    font_color='#ecf0f1',
-                    height=600
-                )
-                top_videos_fig.update_yaxes(automargin=True)
-                logger.info("Gráfico de top vídeos criado com sucesso")
-            else:
-                top_videos_fig = empty_fig
-                logger.warning("Sem dados para gráfico de top vídeos")
-        except Exception as e:
-            logger.error(f"Erro ao criar gráfico de top vídeos: {e}")
-            top_videos_fig = empty_fig
-        
-        # 4. Gráfico de correlação
-        try:
-            correlation_data = filtered_df[['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento']].corr()
-            correlation_fig = px.imshow(
-                correlation_data,
-                title='Correlação entre Métricas',
-                template='plotly_dark',
-                color_continuous_scale='viridis'
-            )
-            correlation_fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                title_font_color='#9b59b6',
-                font_color='#ecf0f1'
-            )
-            logger.info("Gráfico de correlação criado com sucesso")
-        except Exception as e:
-            logger.error(f"Erro ao criar gráfico de correlação: {e}")
-            correlation_fig = empty_fig
-        
-        # 5. Distribuição de engajamento
-        try:
-            engagement_dist_fig = px.scatter(
-                filtered_df,
-                        x='visualizacoes',
-                y='taxa_engajamento',
-                size='curtidas',
-                color='comentarios',
-                hover_data=['titulo', 'data_publicacao'],
-                title='Distribuição da Taxa de Engajamento',
-                template='plotly_dark'
-            )
-            engagement_dist_fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                xaxis_title="Visualizações",
-                yaxis_title="Taxa de Engajamento (%)",
-                title_font_color='#9b59b6',
-                font_color='#ecf0f1'
-            )
-            logger.info("Gráfico de distribuição de engajamento criado com sucesso")
-        except Exception as e:
-            logger.error(f"Erro ao criar gráfico de distribuição de engajamento: {e}")
-            engagement_dist_fig = empty_fig
-        
-        # 6. Taxa de crescimento diário
-        try:
-            # Verificar se temos vídeos suficientes
-            if filtered_df.shape[0] >= 5:
-                growth_df = filtered_df.sort_values('media_visualizacoes_diarias', ascending=False).head(10)
-                growth_df['titulo_curto'] = growth_df['titulo'].apply(lambda x: x[:40] + '...' if len(x) > 40 else x)
-                growth_fig = px.bar(
-                    growth_df,
-                    y='titulo_curto',
-                    x='media_visualizacoes_diarias',
-                    orientation='h',
-                    title='Top 10 Vídeos - Média de Visualizações Diárias',
-                    template='plotly_dark',
-                    hover_data=['visualizacoes', 'data_publicacao']
-                )
-                growth_fig.update_layout(
-                        plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    xaxis_title="Média de Visualizações por Dia",
-                    yaxis_title="Título",
-                    title_font_color='#9b59b6',
-                    font_color='#ecf0f1',
-                    height=600
-                )
-                growth_fig.update_yaxes(automargin=True)
-                logger.info("Gráfico de crescimento diário criado com sucesso")
-            else:
-                growth_fig = empty_fig
-                logger.warning("Dados insuficientes para gráfico de crescimento diário")
-        except Exception as e:
-            logger.error(f"Erro ao criar gráfico de crescimento diário: {e}")
-            growth_fig = empty_fig
-        
-        # 7. Comparação de temporadas
-        try:
-            if 'temporada' in filtered_df.columns:
-                # Verificar se temos mais de uma temporada
-                unique_seasons = filtered_df['temporada'].nunique()
-                logger.info(f"Temporadas únicas: {unique_seasons}")
-                
-                if unique_seasons > 1:
-                    season_data = filtered_df.groupby('temporada').agg({
-                        'visualizacoes': 'mean',
-                        'curtidas': 'mean',
-                        'comentarios': 'mean',
-                        'taxa_engajamento': 'mean'
-                    }).reset_index()
-                    
-                    logger.info(f"Dados de temporada: {season_data}")
-                    
-                    seasons_fig = px.bar(
-                        season_data,
-                        x='temporada',
-                        y=['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento'],
-                        barmode='group',
-                        title='Comparação de Métricas: 2023 vs 2024',
-                        template='plotly_dark'
-                    )
-                else:
-                    # Usar dados simulados se só temos uma temporada
-                    seasons_fig = px.bar(
-                        pd.DataFrame({
-                            'temporada': ['2023', '2024'],
-                            'visualizacoes': [800000, 1200000],
-                            'curtidas': [40000, 65000],
-                            'comentarios': [5000, 7500],
-                            'taxa_engajamento': [4.5, 5.8]
-                        }),
-                        x='temporada',
-                        y=['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento'],
-                        barmode='group',
-                        title='Comparação de Métricas: 2023 vs 2024 (Simulação)',
-                        template='plotly_dark'
-                    )
-                    logger.info("Usando dados simulados para comparação de temporadas")
-            else:
-                # Criar dados simulados
-                seasons_fig = px.bar(
-                    pd.DataFrame({
-                        'temporada': ['2023', '2024'],
-                        'visualizacoes': [800000, 1200000],
-                        'curtidas': [40000, 65000],
-                        'comentarios': [5000, 7500],
-                        'taxa_engajamento': [4.5, 5.8]
-                    }),
-                    x='temporada',
-                    y=['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento'],
-                    barmode='group',
-                    title='Comparação de Métricas: 2023 vs 2024 (Simulação)',
-                    template='plotly_dark'
-                )
-                logger.info("Usando dados simulados para comparação de temporadas (coluna temporada não encontrada)")
-            
-            seasons_fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                xaxis_title="Temporada",
-                yaxis_title="Valor Médio",
-                title_font_color='#9b59b6',
-                font_color='#ecf0f1'
-            )
-        except Exception as e:
-            logger.error(f"Erro ao criar gráfico de comparação de temporadas: {e}")
-            seasons_fig = empty_fig
-        
-        logger.info("Todos os gráficos gerados com sucesso")
-        return views_fig, engagement_fig, top_videos_fig, correlation_fig, engagement_dist_fig, growth_fig, seasons_fig
-        
-    except Exception as e:
-        logger.error(f"Erro geral na função update_graphs: {e}", exc_info=True)
-        return empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig
+    filtered_df = df.copy()
+    
+    # Aplicar filtros de data
+    if start_date and end_date:
+        filtered_df = filtered_df[
+            (filtered_df['data_publicacao'] >= start_date) &
+            (filtered_df['data_publicacao'] <= end_date)
+        ]
+    
+    # Garantir que os dados estejam ordenados por data
+    filtered_df = filtered_df.sort_values('data_publicacao')
+    
+    # 1. Gráfico de visualizações
+    fig_views = px.line(
+        filtered_df,
+        x='data_publicacao',
+        y='visualizacoes',
+        title='Visualizações ao Longo do Tempo'
+    )
+    
+    # 2. Gráfico de engajamento
+    fig_engagement = px.line(
+        filtered_df,
+        x='data_publicacao',
+        y=['curtidas', 'comentarios'],
+        title='Engajamento ao Longo do Tempo'
+    )
+    
+    # 3. Top vídeos - usar título truncado
+    top_df = filtered_df.nlargest(10, 'visualizacoes')
+    top_df['titulo_display'] = top_df['titulo'].apply(truncate_title)
+    fig_top = px.bar(
+        top_df,
+        x='visualizacoes',
+        y='titulo_display',
+        orientation='h',
+        title='Top 10 Vídeos mais Visualizados'
+    )
+    
+    # 4. Correlação
+    fig_corr = px.imshow(
+        filtered_df[['visualizacoes', 'curtidas', 'comentarios']].corr(),
+        title='Correlação entre Métricas'
+    )
+    
+    # 5. Distribuição de engajamento
+    fig_dist = px.scatter(
+        filtered_df,
+        x='visualizacoes',
+        y='taxa_engajamento',
+        title='Distribuição do Engajamento',
+        hover_data=['titulo_truncado']
+    )
+    
+    # 6. Taxa de crescimento
+    fig_growth = px.line(
+        filtered_df,
+        x='data_publicacao',
+        y='media_visualizacoes_diarias',
+        title='Taxa de Crescimento Diário'
+    )
+    
+    # 7. Comparação de temporadas
+    fig_seasons = px.bar(
+        filtered_df.groupby('temporada')['visualizacoes'].mean().reset_index(),
+        x='temporada',
+        y='visualizacoes',
+        title='Média de Visualizações por Temporada'
+    )
+    
+    # Atualizar layout de todos os gráficos
+    figs = [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]
+    for fig in figs:
+        fig.update_layout(
+            template='plotly_dark',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font_color='white',
+            showlegend=True,
+            margin=dict(t=30, l=10, r=10, b=10)
+        )
+        # Adicionar hover templates mais informativos
+        if hasattr(fig, 'data'):
+            for trace in fig.data:
+                if hasattr(trace, 'hovertemplate'):
+                    trace.hovertemplate = trace.hovertemplate.replace('=', ': ')
+    
+    return figs
 
 @app.callback(
     Output("videos-table", "children"),
@@ -1028,32 +804,23 @@ def update_graphs(sort_by, start_date, end_date):
      Input("date-picker", "end_date")]
 )
 def update_table(sort_by, start_date, end_date):
-    logger.info(f"Atualizando tabela com filtros: sort_by={sort_by}, start_date={start_date}, end_date={end_date}")
-    
     if df.empty:
         return html.Div("Nenhum dado disponível")
     
     try:
         filtered_df = df.copy()
-        logger.info(f"Shape inicial: {filtered_df.shape}")
         
         # Aplicar filtros de data se estiverem definidos
         if start_date and end_date:
-            try:
-                start = pd.to_datetime(start_date)
-                end = pd.to_datetime(end_date)
-                filtered_df = filtered_df[
-                    (filtered_df['data_publicacao'] >= start) &
-                    (filtered_df['data_publicacao'] <= end)
-                ]
-                logger.info(f"Filtro de data aplicado: {start} a {end}")
-                logger.info(f"Shape após filtro de data: {filtered_df.shape}")
-                
-                if filtered_df.empty:
-                    return html.Div("Nenhum dado disponível para o período selecionado")
-            except Exception as e:
-                logger.error(f"Erro ao filtrar por data na tabela: {e}")
-                return html.Div(f"Erro ao filtrar por data: {str(e)}")
+            start = pd.to_datetime(start_date)
+            end = pd.to_datetime(end_date)
+            filtered_df = filtered_df[
+                (filtered_df['data_publicacao'] >= start) &
+                (filtered_df['data_publicacao'] <= end)
+            ]
+        
+        if filtered_df.empty:
+            return html.Div("Nenhum dado disponível para o período selecionado")
         
         # Aplicar ordenação
         if sort_by:
@@ -1064,35 +831,13 @@ def update_table(sort_by, start_date, end_date):
                         by=column,
                         ascending=(order == 'asc')
                     )
-                    logger.info(f"Ordenação aplicada: {column} {'ascendente' if order == 'asc' else 'descendente'}")
-                    logger.info(f"Primeiros 5 valores após ordenação: {filtered_df[column].head().tolist()}")
-                else:
-                    logger.warning(f"Coluna {column} não encontrada para ordenação")
-            except Exception as e:
-                logger.error(f"Erro ao ordenar tabela: {e}")
-                return html.Div(f"Erro ao ordenar dados: {str(e)}")
-        
-        # Converter objetos datetime para string para evitar erros no DataTable
-        for col in filtered_df.columns:
-            if pd.api.types.is_datetime64_any_dtype(filtered_df[col]):
-                filtered_df[col] = filtered_df[col].dt.strftime('%Y-%m-%d %H:%M')
-        
-        # Garantir que todas as colunas necessárias existam
-        required_columns = ["titulo", "data_publicacao", "visualizacoes", "curtidas", "comentarios"]
-        for col in required_columns:
-            if col not in filtered_df.columns:
-                filtered_df[col] = "N/A"
-        
-        # Adicionar a coluna de taxa de engajamento se não existir
-        if "taxa_engajamento" not in filtered_df.columns:
-            filtered_df["taxa_engajamento"] = ((filtered_df['curtidas'] + filtered_df['comentarios']) / filtered_df['visualizacoes'] * 100).round(2)
-        
-        # Limitar o número de linhas para não sobrecarregar o navegador
-        display_df = filtered_df.head(100)
+            except ValueError:
+                # Se não conseguir separar em coluna e ordem, ignora a ordenação
+                pass
         
         # Criar a tabela
         table = dash_table.DataTable(
-            data=display_df.to_dict('records'),
+            data=filtered_df.to_dict('records'),
             columns=[
                 {"name": "Título", "id": "titulo"},
                 {"name": "Data", "id": "data_publicacao"},
@@ -1105,8 +850,8 @@ def update_table(sort_by, start_date, end_date):
                 'height': '400px',
                 'overflowY': 'auto',
                 'border': '1px solid #9b59b6'
-                            },
-                            style_cell={
+            },
+            style_cell={
                 'textAlign': 'left',
                 'padding': '10px',
                 'backgroundColor': '#2b3e50',
@@ -1124,14 +869,15 @@ def update_table(sort_by, start_date, end_date):
                     'backgroundColor': '#34495e'
                 }
             ],
-            page_size=15
+            page_size=15,
+            sort_action='native',
+            filter_action='native'
         )
         
-        logger.info(f"Tabela atualizada com {len(display_df)} linhas")
         return table
         
     except Exception as e:
-        logger.error(f"Erro ao atualizar tabela: {e}", exc_info=True)
+        logger.error(f"Erro ao atualizar tabela: {e}")
         return html.Div(f"Erro ao gerar tabela: {str(e)}")
 
 # Corrigir a extração de pilotos para garantir que Hamilton seja corretamente detectado
@@ -1176,64 +922,33 @@ except Exception as e:
      Input("date-picker", "start_date"),
      Input("date-picker", "end_date")]
 )
-def debug_filters(sort_by, start_date, end_date):
-    logger.info(f"Debug dos filtros - sort_by: {sort_by}, start_date: {start_date}, end_date: {end_date}")
-    
+def update_debug_output(sort_by, start_date, end_date):
     if df.empty:
-        return "DataFrame vazio"
+        return "DataFrame está vazio"
     
     try:
         filtered_df = df.copy()
         debug_info = []
         
-        # Informações iniciais
-        debug_info.append(f"Total de registros antes dos filtros: {len(filtered_df)}")
-        
-        # Aplicar filtros de data se estiverem definidos
+        # Info sobre datas
         if start_date and end_date:
-            try:
-                start = pd.to_datetime(start_date)
-                end = pd.to_datetime(end_date)
-                filtered_df = filtered_df[
-                    (filtered_df['data_publicacao'] >= start) &
-                    (filtered_df['data_publicacao'] <= end)
-                ]
-                debug_info.append(f"Filtro de data aplicado: {start} a {end}")
-                debug_info.append(f"Registros após filtro de data: {len(filtered_df)}")
-            except Exception as e:
-                debug_info.append(f"Erro no filtro de data: {str(e)}")
+            debug_info.append(f"Período selecionado: {start_date} até {end_date}")
         
-        # Aplicar ordenação se estiver definida
+        # Info sobre ordenação
         if sort_by:
-            try:
-                # Verificar se o valor está no formato correto (coluna_ordem)
-                if '_' in sort_by:
-                    column, order = sort_by.split('_')
-                    if column in filtered_df.columns:
-                        filtered_df = filtered_df.sort_values(
-                            by=column,
-                            ascending=(order == 'asc')
-                        )
-                        debug_info.append(f"Ordenação aplicada: {column} {'ascendente' if order == 'asc' else 'descendente'}")
-                        debug_info.append(f"Primeiros 5 valores após ordenação: {filtered_df[column].head().tolist()}")
-                    else:
-                        debug_info.append(f"Coluna {column} não encontrada para ordenação")
-                else:
-                    debug_info.append(f"Formato de ordenação inválido: {sort_by}")
-            except Exception as e:
-                debug_info.append(f"Erro na ordenação: {str(e)}")
-                logger.error(f"Erro na ordenação: {str(e)}")
+            column, order = sort_by.split('_')
+            debug_info.append(f"Ordenação: {column} ({'ascendente' if order == 'asc' else 'descendente'})")
         
-        # Informações finais
-        debug_info.append(f"Total de registros após todos os filtros: {len(filtered_df)}")
+        # Info sobre dados
+        debug_info.append(f"Total de registros: {len(filtered_df)}")
+        if 'visualizacoes' in filtered_df.columns:
+            debug_info.append(f"Total de visualizações: {filtered_df['visualizacoes'].sum():,}")
         
-        return html.Div([
-            html.P(info, className="mb-1") for info in debug_info
-        ])
+        return html.Div([html.P(info) for info in debug_info])
         
     except Exception as e:
-        logger.error(f"Erro no debug dos filtros: {e}", exc_info=True)
-        return f"Erro ao aplicar filtros: {str(e)}"
+        logger.error(f"Erro ao atualizar debug output: {e}")
+        return html.Div(f"Erro ao gerar debug output: {str(e)}")
 
 server = app.server  # Adicionar esta linha no fim do arquivo
 
