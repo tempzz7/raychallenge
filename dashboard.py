@@ -1235,6 +1235,8 @@ def debug_filters(sort_by, start_date, end_date):
         logger.error(f"Erro no debug dos filtros: {e}", exc_info=True)
         return f"Erro ao aplicar filtros: {str(e)}"
 
+server = app.server  # Adicionar esta linha no fim do arquivo
+
 if __name__ == '__main__':
     # Verificar se conseguimos carregar os dados
     if df.empty:
