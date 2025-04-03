@@ -6,5 +6,5 @@ plotly==5.18.0
 python-dotenv==1.0.0
 numpy==1.26.2
 gunicorn==21.2.0
-python-3.9.18
+packaging>=20.0
 
