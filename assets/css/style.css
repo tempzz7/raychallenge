@@ -1,0 +1,164 @@
+/* Estilos Gerais */
+body {
+    background-color: #1a1a1a;
+    color: #ffffff;
+}
+
+/* Cards e Métricas */
+.metric-card {
+    background: linear-gradient(135deg, #2c2c2c 0%, #1a1a1a 100%);
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    color: #9b59b6;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    border: 1px solid #9b59b6;
+    transition: transform 0.3s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-5px);
+}
+
+.metric-label {
+    text-align: center;
+    margin-top: 5px;
+    color: #b39df3;
+    font-size: 14px;
+}
+
+.custom-card {
+    background: linear-gradient(135deg, #2c2c2c 0%, #1a1a1a 100%);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    border: 1px solid #9b59b6;
+    border-radius: 10px;
+    transition: transform 0.3s ease;
+}
+
+.custom-card:hover {
+    transform: translateY(-5px);
+}
+
+.card-title {
+    color: #9b59b6;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    margin-bottom: 20px;
+}
+
+/* Tabelas */
+.table {
+    margin-bottom: 0;
+    color: #ffffff;
+}
+
+.table thead th {
+    background-color: #2c2c2c;
+    color: #9b59b6;
+    border-bottom: 2px solid #9b59b6;
+    font-weight: bold;
+}
+
+.table tbody tr:hover {
+    background-color: #2c2c2c;
+    transition: background-color 0.3s ease;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+/* Controles */
+.custom-datepicker {
+    background-color: #2c2c2c;
+    border-radius: 5px;
+    padding: 5px;
+}
+
+.custom-dropdown {
+    background-color: #2c2c2c;
+    border-radius: 5px;
+}
+
+/* Componentes Select */
+.Select-control {
+    background-color: #2c2c2c;
+    border-color: #9b59b6;
+}
+
+.Select-menu-outer {
+    background-color: #2c2c2c;
+    border-color: #9b59b6;
+}
+
+.Select-option {
+    background-color: #2c2c2c;
+    color: #ffffff;
+}
+
+.Select-option:hover {
+    background-color: #9b59b6;
+}
+
+.Select-value-label {
+    color: #ffffff;
+}
+
+.Select-placeholder {
+    color: #b39df3;
+}
+
+.Select--multi .Select-value {
+    background-color: #9b59b6;
+    border-color: #9b59b6;
+}
+
+.Select--multi .Select-value-icon {
+    border-color: #9b59b6;
+}
+
+.Select--multi .Select-value-icon:hover {
+    background-color: #8e44ad;
+}
+
+/* Gráficos */
+.js-plotly-plot {
+    background-color: transparent !important;
+}
+
+.plotly-graph-div {
+    background-color: transparent !important;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .metric-card {
+        margin-bottom: 15px;
+    }
+    
+    .table {
+        font-size: 14px;
+    }
+    
+    .card-title {
+        font-size: 18px;
+    }
+}
+
+/* Animações */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.custom-card {
+    animation: fadeIn 0.5s ease-out;
+} 
