@@ -2,7 +2,6 @@
 
 Este projeto analisa os vídeos de highlights das corridas de Fórmula 1 do canal oficial no YouTube, construindo um dashboard interativo para visualização dos dados.
 
-![Dashboard Preview](https://i.imgur.com/JdWoSQs.png)
 
 ## Funcionalidades
 
