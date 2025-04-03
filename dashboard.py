@@ -12,7 +12,7 @@ import re
 import numpy as np
 import logging
 
-# Configurar logging
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -25,11 +25,12 @@ load_dotenv()
 app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.DARKLY],
-    meta_tags=[{'name': 'viewport', 'content': 'width=device-width, initial-scale=1.0'}],
+    meta_tags=[
+        {'name': 'viewport', 'content': 'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0'}
+    ],
     assets_folder='assets'
 )
 
-# Correções de bugs
 min_date = pd.to_datetime('2023-01-01')
 max_date = pd.to_datetime('now')
 
@@ -41,21 +42,26 @@ def safe_engagement_rate(row):
         return 0
     return round(((row['curtidas'] + row['comentarios']) / row['visualizacoes'] * 100), 2)
 
-# Tentar carregar os dados com tratamento de erro detalhado
+
 try:
-    logger.info(f"Tentando carregar o arquivo CSV de {os.getcwd()}/f1_2024_highlights.csv")
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_path = os.path.join(current_dir, 'f1_2024_highlights.csv')
     
-    # Verificar se o arquivo existe
-    if not os.path.exists('f1_2024_highlights.csv'):
-        logger.error("Arquivo CSV não encontrado!")
-        raise FileNotFoundError("Arquivo CSV não encontrado!")
+    logger.info(f"Diretório atual: {current_dir}")
+    logger.info(f"Tentando carregar o arquivo CSV de: {csv_path}")
+    
+
+    if not os.path.exists(csv_path):
+        logger.error(f"Arquivo CSV não encontrado em: {csv_path}")
+        raise FileNotFoundError(f"Arquivo CSV não encontrado em: {csv_path}")
     
     # Verificar tamanho do arquivo
-    file_size = os.path.getsize('f1_2024_highlights.csv')
+    file_size = os.path.getsize(csv_path)
     logger.info(f"Tamanho do arquivo: {file_size} bytes")
     
     # Carregar dados
-    df = pd.read_csv('f1_2024_highlights.csv')
+    df = pd.read_csv(csv_path)
     logger.info(f"Arquivo CSV carregado com sucesso. Formato: {df.shape}")
 
     # Converter coluna de data com tratamento de erro
@@ -197,17 +203,23 @@ app.layout = dbc.Container([
     # Título principal com narrativa
     dbc.Row([
         dbc.Col([
-                html.H1(
+            html.H1(
                 "A F1 em 2024: O que Encanta os Fãs no YouTube",
                 className="text-center mb-2",
-                style={'color': '#9b59b6', 'fontWeight': 'bold', 'textShadow': '2px 2px 4px rgba(0,0,0,0.5)'}
+                style={
+                    'color': '#9b59b6',
+                    'fontWeight': 'bold',
+                    'textShadow': '2px 2px 4px rgba(0,0,0,0.5)',
+                    'fontSize': {'sm': '24px', 'md': '32px', 'lg': '36px', 'xl': '40px'}
+                }
             ),
             html.H5(
                 "Descobrindo padrões de engajamento e preferências dos fãs através dos highlights oficiais",
-                className="text-center mb-3 text-muted"
+                className="text-center mb-3 text-muted",
+                style={'fontSize': {'sm': '16px', 'md': '18px', 'lg': '20px'}}
             ),
             html.Hr(style={'borderColor': '#9b59b6'})
-        ])
+        ], xs=12)
     ]),
     
     # Destaques da temporada
@@ -219,23 +231,23 @@ app.layout = dbc.Container([
                     dbc.Row([
                         dbc.Col([
                             html.H6("Corrida Mais Popular", className="text-light text-center"),
-                            html.H4(id="top-race", className="text-primary text-center"),
+                            html.H4(id="top-race", className="text-primary text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}}),
                             html.P(id="top-race-views", className="text-muted text-center")
-                        ], width=4),
+                        ], xs=12, sm=12, md=4),
                         dbc.Col([
                             html.H6("Maior Engajamento", className="text-light text-center"),
-                            html.H4(id="top-engagement", className="text-primary text-center"),
+                            html.H4(id="top-engagement", className="text-primary text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}}),
                             html.P(id="top-engagement-percent", className="text-muted text-center")
-                        ], width=4),
+                        ], xs=12, sm=12, md=4),
                         dbc.Col([
                             html.H6("Piloto em Destaque", className="text-light text-center"),
-                            html.H4(id="top-driver", className="text-primary text-center"),
+                            html.H4(id="top-driver", className="text-primary text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}}),
                             html.P(id="top-driver-mentions", className="text-muted text-center")
-                        ], width=4)
+                        ], xs=12, sm=12, md=4)
                     ])
                 ])
             ], className="mb-4", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ])
+        ], xs=12)
     ]),
     
     # Filtros e Ordenação
@@ -261,15 +273,15 @@ app.layout = dbc.Container([
                                     {'label': 'Taxa de Engajamento (Maior)', 'value': 'taxa_engajamento_desc'},
                                     {'label': 'Taxa de Engajamento (Menor)', 'value': 'taxa_engajamento_asc'}
                                 ],
-                                value='data_publicacao_asc',
-                                className='custom-dropdown',
+                                value='data_publicacao_desc',
+                                className='custom-dropdown mb-3',
                                 style={
                                     'backgroundColor': '#2b3e50',
                                     'color': '#ecf0f1',
                                     'border': '1px solid #9b59b6'
                                 }
                             )
-                        ], width=6),
+                        ], xs=12, md=6),
                         dbc.Col([
                             html.Label("Período:", className="text-light"),
                             dcc.DatePickerRange(
@@ -284,14 +296,15 @@ app.layout = dbc.Container([
                                 style={
                                     'backgroundColor': '#2b3e50',
                                     'color': '#ecf0f1',
-                                    'border': '1px solid #9b59b6'
+                                    'border': '1px solid #9b59b6',
+                                    'width': '100%'
                                 }
                             )
-                        ], width=6)
+                        ], xs=12, md=6)
                     ])
                 ])
             ], className="mb-4", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ])
+        ], xs=12)
     ]),
     
     # Adicionar após os filtros e ordenação
@@ -328,7 +341,7 @@ app.layout = dbc.Container([
                     html.P("Vídeos coletados", className="text-muted")
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=3),
+        ], xs=12, sm=6, md=3),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -337,7 +350,7 @@ app.layout = dbc.Container([
                     html.P("Visualizações totais", className="text-muted")
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=3),
+        ], xs=12, sm=6, md=3),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -346,7 +359,7 @@ app.layout = dbc.Container([
                     html.P("Curtidas totais", className="text-muted")
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=3),
+        ], xs=12, sm=6, md=3),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
@@ -355,29 +368,37 @@ app.layout = dbc.Container([
                     html.P("Curtidas + Comentários / Views", className="text-muted")
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=3)
+        ], xs=12, sm=6, md=3)
     ]),
     
-    # Gráficos
+    # GRAFICOS
     dbc.Row([
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
                     html.H5("Visualizações ao Longo do Tempo", className="card-title text-primary"),
                     html.P(id="views-insight", className="text-muted"),
-                    dcc.Graph(id="views-time-graph")
+                    dcc.Graph(
+                        id="views-time-graph",
+                        config={'responsive': True},
+                        style={'height': '300px'}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=6),
+        ], xs=12, md=6),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
                     html.H5("Engajamento ao Longo do Tempo", className="card-title text-primary"),
                     html.P(id="engagement-insight", className="text-muted"),
-                    dcc.Graph(id="engagement-time-graph")
+                    dcc.Graph(
+                        id="engagement-time-graph",
+                        config={'responsive': True},
+                        style={'height': '300px'}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=6)
+        ], xs=12, md=6)
     ]),
     
     dbc.Row([
@@ -386,19 +407,27 @@ app.layout = dbc.Container([
                 dbc.CardBody([
                     html.H5("Top Vídeos por Visualizações", className="card-title text-primary"),
                     html.P(id="top-videos-insight", className="text-muted"),
-                    dcc.Graph(id="top-videos-graph")
+                    dcc.Graph(
+                        id="top-videos-graph",
+                        config={'responsive': True},
+                        style={'height': {'xs': '400px', 'md': '300px'}}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=6),
+        ], xs=12, md=6),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
                     html.H5("Correlação entre Métricas", className="card-title text-primary"),
                     html.P(id="correlation-insight", className="text-muted"),
-                    dcc.Graph(id="correlation-graph")
+                    dcc.Graph(
+                        id="correlation-graph",
+                        config={'responsive': True},
+                        style={'height': {'xs': '400px', 'md': '300px'}}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=6)
+        ], xs=12, md=6)
     ]),
     
     dbc.Row([
@@ -407,19 +436,27 @@ app.layout = dbc.Container([
                 dbc.CardBody([
                     html.H5("Distribuição de Engajamento", className="card-title text-primary"),
                     html.P(id="distribution-insight", className="text-muted"),
-                    dcc.Graph(id="engagement-distribution")
+                    dcc.Graph(
+                        id="engagement-distribution",
+                        config={'responsive': True},
+                        style={'height': {'xs': '400px', 'md': '300px'}}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=6),
+        ], xs=12, md=6),
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
                     html.H5("Taxa de Crescimento Diário", className="card-title text-primary"),
                     html.P(id="growth-insight", className="text-muted"),
-                    dcc.Graph(id="daily-growth-rate")
+                    dcc.Graph(
+                        id="daily-growth-rate",
+                        config={'responsive': True},
+                        style={'height': {'xs': '400px', 'md': '300px'}}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ], width=6)
+        ], xs=12, md=6)
     ]),
     
     # Comparação de temporadas (2023 vs 2024)
@@ -429,27 +466,34 @@ app.layout = dbc.Container([
                 dbc.CardBody([
                     html.H5("Comparação de Temporadas: 2023 vs 2024", className="card-title text-primary"),
                     html.P(id="seasons-insight", className="text-muted"),
-                    dcc.Graph(id="seasons-comparison")
+                    dcc.Graph(
+                        id="seasons-comparison",
+                        config={'responsive': True},
+                        style={'height': {'xs': '400px', 'md': '300px'}}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ])
+        ], xs=12)
     ]),
     
-    # Tabela de vídeos
+    # TABELA DE VI
     dbc.Row([
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
                     html.H5("Lista de Vídeos", className="card-title text-primary"),
                     html.P("Detalhes completos dos vídeos analisados, ordenados conforme seleção acima.", className="text-muted"),
-                    html.Div(id="videos-table")
+                    html.Div(
+                        id="videos-table",
+                        style={'overflowX': 'auto'}
+                    )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ])
+        ], xs=12)
     ])
-], fluid=True, className="p-3")
+], fluid=True, className="p-3", style={'maxWidth': '1400px', 'margin': '0 auto'})
 
-# Callback para Destaques da Temporada
+# Callback para Destaques da TemporadaCALL
 @app.callback(
     [Output("top-race", "children"),
      Output("top-race-views", "children"),
@@ -720,6 +764,18 @@ def update_graphs(sort_by, start_date, end_date):
     # Garantir que os dados estejam ordenados por data
     filtered_df = filtered_df.sort_values('data_publicacao')
     
+    # Layout base para todos os gráficos
+    layout_base = dict(
+        template='plotly_dark',
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font_color='white',
+        showlegend=True,
+        margin=dict(t=30, l=10, r=10, b=10),
+        autosize=True,
+        hovermode='closest'
+    )
+    
     # 1. Gráfico de visualizações
     fig_views = px.line(
         filtered_df,
@@ -727,6 +783,7 @@ def update_graphs(sort_by, start_date, end_date):
         y='visualizacoes',
         title='Visualizações ao Longo do Tempo'
     )
+    fig_views.update_layout(layout_base)
     
     # 2. Gráfico de engajamento
     fig_engagement = px.line(
@@ -735,6 +792,7 @@ def update_graphs(sort_by, start_date, end_date):
         y=['curtidas', 'comentarios'],
         title='Engajamento ao Longo do Tempo'
     )
+    fig_engagement.update_layout(layout_base)
     
     # 3. Top vídeos - usar título truncado
     top_df = filtered_df.nlargest(10, 'visualizacoes')
@@ -746,12 +804,14 @@ def update_graphs(sort_by, start_date, end_date):
         orientation='h',
         title='Top 10 Vídeos mais Visualizados'
     )
+    fig_top.update_layout(layout_base)
     
     # 4. Correlação
     fig_corr = px.imshow(
         filtered_df[['visualizacoes', 'curtidas', 'comentarios']].corr(),
         title='Correlação entre Métricas'
     )
+    fig_corr.update_layout(layout_base)
     
     # 5. Distribuição de engajamento
     fig_dist = px.scatter(
@@ -761,6 +821,7 @@ def update_graphs(sort_by, start_date, end_date):
         title='Distribuição do Engajamento',
         hover_data=['titulo_truncado']
     )
+    fig_dist.update_layout(layout_base)
     
     # 6. Taxa de crescimento
     fig_growth = px.line(
@@ -769,6 +830,7 @@ def update_graphs(sort_by, start_date, end_date):
         y='media_visualizacoes_diarias',
         title='Taxa de Crescimento Diário'
     )
+    fig_growth.update_layout(layout_base)
     
     # 7. Comparação de temporadas
     fig_seasons = px.bar(
@@ -777,25 +839,30 @@ def update_graphs(sort_by, start_date, end_date):
         y='visualizacoes',
         title='Média de Visualizações por Temporada'
     )
+    fig_seasons.update_layout(layout_base)
     
-    # Atualizar layout de todos os gráficos
-    figs = [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]
-    for fig in figs:
+    # Configurações adicionais para responsividade
+    for fig in [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]:
         fig.update_layout(
-            template='plotly_dark',
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font_color='white',
-            showlegend=True,
-            margin=dict(t=30, l=10, r=10, b=10)
+            xaxis=dict(
+                tickangle=45,
+                showgrid=True,
+                gridcolor='rgba(128,128,128,0.2)',
+                automargin=True
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor='rgba(128,128,128,0.2)',
+                automargin=True
+            ),
+            hoverlabel=dict(
+                bgcolor='#2b3e50',
+                font_size=12,
+                font_family='Arial'
+            )
         )
-        # Adicionar hover templates mais informativos
-        if hasattr(fig, 'data'):
-            for trace in fig.data:
-                if hasattr(trace, 'hovertemplate'):
-                    trace.hovertemplate = trace.hovertemplate.replace('=', ': ')
     
-    return figs
+    return [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]
 
 @app.callback(
     Output("videos-table", "children"),
@@ -832,10 +899,9 @@ def update_table(sort_by, start_date, end_date):
                         ascending=(order == 'asc')
                     )
             except ValueError:
-                # Se não conseguir separar em coluna e ordem, ignora a ordenação
                 pass
         
-        # Criar a tabela
+        # Criar a tabela com configurações responsivas
         table = dash_table.DataTable(
             data=filtered_df.to_dict('records'),
             columns=[
@@ -847,21 +913,29 @@ def update_table(sort_by, start_date, end_date):
                 {"name": "Taxa Eng. (%)", "id": "taxa_engajamento", "type": "numeric", "format": {"specifier": ".2f"}}
             ],
             style_table={
-                'height': '400px',
-                'overflowY': 'auto',
-                'border': '1px solid #9b59b6'
+                'overflowX': 'auto',
+                'minWidth': '100%'
             },
             style_cell={
                 'textAlign': 'left',
                 'padding': '10px',
                 'backgroundColor': '#2b3e50',
                 'color': '#ecf0f1',
-                'border': '1px solid #34495e'
+                'border': '1px solid #34495e',
+                'minWidth': '100px',
+                'whiteSpace': 'normal',
+                'height': 'auto'
+            },
+            style_data={
+                'whiteSpace': 'normal',
+                'height': 'auto'
             },
             style_header={
                 'backgroundColor': '#1a252f',
                 'fontWeight': 'bold',
-                'color': '#9b59b6'
+                'color': '#9b59b6',
+                'whiteSpace': 'normal',
+                'height': 'auto'
             },
             style_data_conditional=[
                 {
@@ -869,9 +943,10 @@ def update_table(sort_by, start_date, end_date):
                     'backgroundColor': '#34495e'
                 }
             ],
-            page_size=15,
+            page_size=10,
             sort_action='native',
-            filter_action='native'
+            filter_action='native',
+            style_as_list_view=True
         )
         
         return table
