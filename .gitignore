@@ -27,7 +27,6 @@ wheels/
 *.egg
 
 # Arquivos de dados
-*.csv
 *.xlsx
 *.xls
 
