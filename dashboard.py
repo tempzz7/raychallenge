@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timezone
 import dash
 from dash import html, dcc, dash_table
 import dash_bootstrap_components as dbc
@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 import re
 import numpy as np
 import logging
+from functools import lru_cache
+from io import StringIO
+from dash.exceptions import PreventUpdate
 
 
 logging.basicConfig(
@@ -28,178 +31,189 @@ app = dash.Dash(
     meta_tags=[
         {'name': 'viewport', 'content': 'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0'}
     ],
-    assets_folder='assets'
+    assets_folder='assets',
+    suppress_callback_exceptions=True  # Importante para callbacks condicionais
 )
 
-min_date = pd.to_datetime('2023-01-01')
-max_date = pd.to_datetime('now')
+min_date = pd.to_datetime('2023-01-01', utc=True)
+max_date = pd.to_datetime('now', utc=True)
 
 def truncate_title(title, max_length=40):
-    return title[:max_length] + '...' if len(title) > max_length else title
+    try:
+        # Verificar se o título é nulo ou NaN
+        if pd.isna(title) or title is None:
+            return "Sem título"
+            
+        # Converter para string se necessário
+        title_str = str(title).strip()
+        
+        # Verificar se o título está vazio
+        if not title_str:
+            return "Sem título"
+            
+        # Truncar o título se necessário
+        if len(title_str) > max_length:
+            return title_str[:max_length] + '...'
+        return title_str
+    except Exception as e:
+        logger.error(f"Erro ao truncar título: {e}")
+        return "Sem título"
 
 def safe_engagement_rate(row):
-    if row['visualizacoes'] == 0:
-        return 0
-    return round(((row['curtidas'] + row['comentarios']) / row['visualizacoes'] * 100), 2)
-
-
-try:
-
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(current_dir, 'f1_2024_highlights.csv')
-    
-    logger.info(f"Diretório atual: {current_dir}")
-    logger.info(f"Tentando carregar o arquivo CSV de: {csv_path}")
-    
-
-    if not os.path.exists(csv_path):
-        logger.error(f"Arquivo CSV não encontrado em: {csv_path}")
-        raise FileNotFoundError(f"Arquivo CSV não encontrado em: {csv_path}")
-    
-    # Verificar tamanho do arquivo
-    file_size = os.path.getsize(csv_path)
-    logger.info(f"Tamanho do arquivo: {file_size} bytes")
-    
-    # Carregar dados
-    df = pd.read_csv(csv_path)
-    logger.info(f"Arquivo CSV carregado com sucesso. Formato: {df.shape}")
-
-    # Converter coluna de data com tratamento de erro
     try:
-        df['data_publicacao'] = pd.to_datetime(df['data_publicacao'], errors='coerce')
-        logger.info("Coluna de data convertida com sucesso")
+        # Garantir que os valores são numéricos
+        visualizacoes = float(row['visualizacoes'])
+        curtidas = float(row['curtidas'])
+        comentarios = float(row['comentarios'])
         
-        # Verificando se a conversão foi bem sucedida
-        if df['data_publicacao'].isna().any():
-            logger.warning(f"Existem {df['data_publicacao'].isna().sum()} valores de data que não puderam ser convertidos")
+        # Evitar divisão por zero
+        if visualizacoes == 0:
+            return 0.0
+            
+        # Calcular taxa de engajamento
+        taxa = ((curtidas + comentarios) / visualizacoes) * 100
+        return round(taxa, 2)
     except Exception as e:
-        logger.error(f"Erro ao converter datas: {e}")
-        # Criar uma coluna de data padrão para evitar erros
-        df['data_publicacao'] = pd.to_datetime('2024-01-01')
-    
-    # Verificar se não há linhas vazias
-    if df.empty:
-        logger.warning("DataFrame está vazio após carregamento!")
-    else:
+        logger.error(f"Erro ao calcular taxa de engajamento: {e}")
+        return 0.0
+
+# Função segura para carregar dados
+def load_data():
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        csv_path = os.path.join(current_dir, 'f1_2024_highlights.csv')
+        
+        logger.info(f"Diretório atual: {current_dir}")
+        logger.info(f"Tentando carregar o arquivo CSV de: {csv_path}")
+        
+        if not os.path.exists(csv_path):
+            logger.error(f"Arquivo CSV não encontrado em: {csv_path}")
+            raise FileNotFoundError(f"Arquivo CSV não encontrado em: {csv_path}")
+        
+        # Verificar tamanho do arquivo
+        file_size = os.path.getsize(csv_path)
+        logger.info(f"Tamanho do arquivo: {file_size} bytes")
+        
+        # Carregar dados com tratamento de erros
+        df = pd.read_csv(csv_path, encoding='utf-8', on_bad_lines='skip')
+        logger.info(f"Arquivo CSV carregado com sucesso. Formato: {df.shape}")
+
+        # Converter coluna de data com tratamento de erro
+        try:
+            df['data_publicacao'] = pd.to_datetime(df['data_publicacao'], errors='coerce', utc=True)
+            logger.info("Coluna de data convertida com sucesso")
+            
+            # Verificando se a conversão foi bem sucedida
+            if df['data_publicacao'].isna().any():
+                logger.warning(f"Existem {df['data_publicacao'].isna().sum()} valores de data que não puderam ser convertidos")
+                # Remover linhas com datas inválidas
+                df = df.dropna(subset=['data_publicacao'])
+        except Exception as e:
+            logger.error(f"Erro ao converter datas: {e}")
+            raise
+        
+        # Verificar se não há linhas vazias
+        if df.empty:
+            logger.error("DataFrame está vazio após carregamento!")
+            raise ValueError("DataFrame está vazio após carregamento")
+        
         logger.info(f"DataFrame carregado com {len(df)} linhas e {len(df.columns)} colunas")
         logger.info(f"Colunas disponíveis: {df.columns.tolist()}")
-    
-    # Calcular métricas adicionais com tratamento de erro
-    logger.info("Calculando métricas adicionais...")
-    
-    try:
-        # Taxa de engajamento
-        df['taxa_engajamento'] = df.apply(safe_engagement_rate, axis=1)
         
-        # Média diária de visualizações - corrigindo o cálculo que estava causando erro
-        hoje = pd.to_datetime('today')
-        df['dias_desde_publicacao'] = (hoje - df['data_publicacao']).dt.days
-        # Evitar divisão por zero
-        df.loc[df['dias_desde_publicacao'] <= 0, 'dias_desde_publicacao'] = 1
-        df['media_visualizacoes_diarias'] = (df['visualizacoes'] / df['dias_desde_publicacao']).round(0)
-        
-        # Outras métricas
-        df['proporcao_curtidas_visualizacoes'] = (df['curtidas'] / df['visualizacoes'] * 100).round(2)
-        df['proporcao_comentarios_visualizacoes'] = (df['comentarios'] / df['visualizacoes'] * 100).round(2)
-        
-        logger.info("Métricas calculadas com sucesso")
-    except Exception as e:
-        logger.error(f"Erro ao calcular métricas: {e}")
-        # Criar colunas padrão para evitar erros no dashboard
-        df['taxa_engajamento'] = 0
-        df['media_visualizacoes_diarias'] = 0
-        df['proporcao_curtidas_visualizacoes'] = 0
-        df['proporcao_comentarios_visualizacoes'] = 0
-    
-    # Extrai informações adicionais do título com tratamento de erro
-    try:
-        df['pais'] = df['titulo'].str.extract(r'(?:Highlights\s*\|\s*)(.*?)(?:\s+Grand Prix)', flags=re.IGNORECASE)
-        df['pais'] = df['pais'].str.strip()
-        
-        # Extrai piloto mais mencionado (simulação para exemplo)
-        pilotos = ['Hamilton', 'Verstappen', 'Leclerc', 'Norris', 'Pérez', 'Sainz', 'Alonso', 'Russell']
-        for piloto in pilotos:
-            df[f'mencao_{piloto}'] = df['titulo'].str.contains(piloto, case=False).astype(int)
-        
-        # Identifica ano da temporada no título
-        df['temporada'] = df['titulo'].str.extract(r'(\b20\d{2}\b)').fillna('2024')
-        
-        logger.info("Extração de informações do título concluída")
-    except Exception as e:
-        logger.error(f"Erro ao extrair informações do título: {e}")
-        # Criar colunas padrão
-        df['pais'] = 'N/A'
-        df['temporada'] = '2024'
-        for piloto in ['Hamilton', 'Verstappen', 'Leclerc', 'Norris', 'Pérez', 'Sainz', 'Alonso', 'Russell']:
-            df[f'mencao_{piloto}'] = 0
-    
-    # Calcular média de crescimento (simulação)
-    media_crescimento = df['media_visualizacoes_diarias'].mean() if 'media_visualizacoes_diarias' in df.columns else 0
-    
-    # Calcular corrida mais popular
-    if not df.empty:
-        logger.info("Calculando estatísticas dos videos")
+        # Calcular métricas adicionais com tratamento de erro
+        logger.info("Calculando métricas adicionais...")
         
         try:
-            top_video_idx = df['visualizacoes'].idxmax()
-            top_video = df.loc[top_video_idx]
-            top_race = top_video['titulo'] if 'titulo' in top_video else "N/A"
-            top_race_views = top_video['visualizacoes'] if 'visualizacoes' in top_video else 0
-            logger.info(f"Video mais popular: {top_race} com {top_race_views} visualizações")
+            # Taxa de engajamento
+            df['taxa_engajamento'] = df.apply(safe_engagement_rate, axis=1)
             
-            # Vídeo com maior engajamento
-            if 'taxa_engajamento' in df.columns:
-                top_engagement_idx = df['taxa_engajamento'].idxmax()
-                top_engagement = df.loc[top_engagement_idx]['titulo'] if top_engagement_idx in df.index else "N/A"
-                top_engagement_percent = df.loc[top_engagement_idx]['taxa_engajamento'] if top_engagement_idx in df.index else 0
-            else:
-                top_engagement = "N/A"
-                top_engagement_percent = 0
+            # Média diária de visualizações
+            hoje = pd.Timestamp.now(tz='UTC')
+            df['dias_desde_publicacao'] = (hoje - df['data_publicacao']).dt.days
+            df['dias_desde_publicacao'] = np.where(
+                df['dias_desde_publicacao'] < 1,
+                1,
+                df['dias_desde_publicacao']
+            )
+            df['media_visualizacoes_diarias'] = (df['visualizacoes'] / df['dias_desde_publicacao']).round(0)
             
-            # Piloto mais mencionado
-            piloto_colunas = [col for col in df.columns if col.startswith('mencao_')]
-            if piloto_colunas:
-                mencoes_soma = df[piloto_colunas].sum()
-                piloto_mais_mencionado = mencoes_soma.idxmax().replace('mencao_', '')
-                qtd_mencoes = mencoes_soma.max()
-            else:
-                piloto_mais_mencionado = "Verstappen"  # Fallback para demonstração
-                qtd_mencoes = 10
-                
-            logger.info("Estatísticas calculadas com sucesso")
+            # Outras métricas
+            df['proporcao_curtidas_visualizacoes'] = np.where(
+                df['visualizacoes'] > 0,
+                (df['curtidas'] / df['visualizacoes'] * 100).round(2),
+                0
+            )
+            df['proporcao_comentarios_visualizacoes'] = np.where(
+                df['visualizacoes'] > 0,
+                (df['comentarios'] / df['visualizacoes'] * 100).round(2),
+                0
+            )
+            
+            # Extrair temporada do título
+            df['temporada'] = df['titulo'].str.extract(r'(\d{4})')
+            df['temporada'] = df['temporada'].fillna(df['data_publicacao'].dt.year.astype(str))
+            df['temporada'] = df['temporada'].where(df['temporada'].isin(['2023', '2024']), '2024')
+            
+            logger.info("Métricas calculadas com sucesso")
+            return df
+            
         except Exception as e:
-            logger.error(f"Erro ao calcular estatísticas: {e}")
-            top_race = "N/A"
-            top_race_views = 0
-            top_engagement = "N/A"
-            top_engagement_percent = 0
-            piloto_mais_mencionado = "N/A"
-            qtd_mencoes = 0
-    else:
-        logger.warning("DataFrame vazio, usando valores padrão para os cards de destaques")
-        top_race = "N/A"
-        top_race_views = 0
-        top_engagement = "N/A"
-        top_engagement_percent = 0
-        piloto_mais_mencionado = "N/A"
-        qtd_mencoes = 0
-except Exception as e:
-    logger.error(f"Erro ao carregar dados: {e}", exc_info=True)
-    df = pd.DataFrame()
-    top_race = "N/A"
-    top_race_views = 0
-    top_engagement = "N/A"
-    top_engagement_percent = 0
-    piloto_mais_mencionado = "N/A"
-    qtd_mencoes = 0
-    media_crescimento = 0
+            logger.error(f"Erro ao calcular métricas: {e}")
+            raise
+            
+    except Exception as e:
+        logger.error(f"Erro ao carregar dados: {e}", exc_info=True)
+        raise
 
-# Aplicar correções ao DataFrame
-if not df.empty:
-    df['titulo_truncado'] = df['titulo'].apply(truncate_title)
-    df['taxa_engajamento'] = df.apply(safe_engagement_rate, axis=1)
+# Carregar dados iniciais
+initial_df = load_data()
 
+# Função central para aplicar filtros - evita repetição de código
+@lru_cache(maxsize=32)
+def apply_filters(df_json, start_date, end_date, sort_by, sort_order):
+    try:
+        # Converter JSON para DataFrame usando StringIO para evitar FutureWarning
+        df = pd.read_json(StringIO(df_json), orient='split')
+        
+        # Converter datas para datetime se forem strings
+        if isinstance(start_date, str):
+            start_date = pd.to_datetime(start_date, utc=True)
+        if isinstance(end_date, str):
+            end_date = pd.to_datetime(end_date, utc=True)
+            
+        # Garantir que a coluna data_publicacao é datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['data_publicacao']):
+            df['data_publicacao'] = pd.to_datetime(df['data_publicacao'], utc=True)
+            
+        # Aplicar filtros de data
+        df = df[(df['data_publicacao'] >= start_date) & 
+                (df['data_publicacao'] <= end_date)]
+                
+        # Aplicar ordenação
+        if sort_by and sort_order:
+            # Remover sufixos _asc ou _desc se existirem
+            sort_column = sort_by.replace('_asc', '').replace('_desc', '')
+            
+            # Verificar se a coluna de ordenação existe
+            if sort_column in df.columns:
+                # Garantir que a coluna é numérica se necessário
+                if sort_column in ['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento']:
+                    df[sort_column] = pd.to_numeric(df[sort_column], errors='coerce').fillna(0)
+                # Aplicar ordenação
+                df = df.sort_values(by=sort_column, ascending=(sort_order == 'asc'))
+            else:
+                logger.warning(f"Coluna de ordenação '{sort_column}' não encontrada")
+            
+        return df
+    except Exception as e:
+        logger.error(f"Erro ao aplicar filtros: {str(e)}")
+        return pd.DataFrame()
+
+# Layout do aplicativo com armazenamento de dados por sessão
 app.layout = dbc.Container([
+    # Armazenamento de dados por sessão
+    dcc.Store(id='session-data', storage_type='session'),
+    
     # Título principal com narrativa
     dbc.Row([
         dbc.Col([
@@ -305,18 +319,6 @@ app.layout = dbc.Container([
                 ])
             ], className="mb-4", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
         ], xs=12)
-    ]),
-    
-    # Adicionar após os filtros e ordenação
-    dbc.Row([
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H5("Debug dos Filtros", className="card-title text-primary"),
-                    html.Div(id="debug-output", className="text-light")
-                ])
-            ], className="mb-4", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
-        ])
     ]),
     
     # Insights Principais
@@ -493,7 +495,47 @@ app.layout = dbc.Container([
     ])
 ], fluid=True, className="p-3", style={'maxWidth': '1400px', 'margin': '0 auto'})
 
-# Callback para Destaques da TemporadaCALL
+# Inicializar o armazenamento de dados de sessão
+@app.callback(
+    Output('session-data', 'data'),
+    [Input('session-data', 'modified_timestamp')],
+    [State('session-data', 'data')]
+)
+def initialize_session_data(ts, data):
+    try:
+        if data is None:
+            # Carregar dados iniciais
+            initial_df = load_data()
+            if initial_df is not None and not initial_df.empty:
+                logger.info(f"Dados iniciais carregados com sucesso: {len(initial_df)} registros")
+                # Serializar DataFrame para JSON
+                return initial_df.to_json(date_format='iso', orient='split')
+            else:
+                logger.error("Falha ao carregar dados iniciais")
+                return None
+        return data
+    except Exception as e:
+        logger.error(f"Erro ao inicializar dados da sessão: {e}", exc_info=True)
+        return None
+
+# Adicionar callback para atualizar a interface assim que os dados forem carregados
+@app.callback(
+    [Output("sort-dropdown", "value"),
+     Output("date-picker", "start_date"),
+     Output("date-picker", "end_date")],
+    [Input('session-data', 'data')]
+)
+def initialize_interface(session_data):
+    try:
+        if session_data:
+            # Definir valores iniciais para os filtros
+            return 'data_publicacao_desc', min_date, max_date
+        return None, None, None
+    except Exception as e:
+        logger.error(f"Erro ao inicializar interface: {e}", exc_info=True)
+        return None, None, None
+
+# Callback para Destaques da Temporada
 @app.callback(
     [Output("top-race", "children"),
      Output("top-race-views", "children"),
@@ -503,40 +545,16 @@ app.layout = dbc.Container([
      Output("top-driver-mentions", "children")],
     [Input("sort-dropdown", "value"),
      Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")]
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
 )
-def update_highlights(sort_by, start_date, end_date):
-    if df.empty:
-        return "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
-    
+def update_highlights(sort_by, start_date, end_date, session_data):
     try:
-        filtered_df = df.copy()
+        if not session_data:
+            return "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
         
-        # Aplicar filtros de data se estiverem definidos
-        if start_date and end_date:
-            try:
-                start = pd.to_datetime(start_date)
-                end = pd.to_datetime(end_date)
-                filtered_df = filtered_df[
-                    (filtered_df['data_publicacao'] >= start) &
-                    (filtered_df['data_publicacao'] <= end)
-                ]
-            except Exception as e:
-                logger.error(f"Erro ao filtrar por data nos destaques: {e}")
-        
-        # Aplicar ordenação se estiver definida
-        if sort_by:
-            try:
-                column, order = sort_by.split('_')
-                if column in filtered_df.columns:
-                    filtered_df = filtered_df.sort_values(
-                        by=column,
-                        ascending=(order == 'asc')
-                    )
-                else:
-                    logger.warning(f"Coluna {column} não encontrada para ordenação")
-            except Exception as e:
-                logger.error(f"Erro ao ordenar destaques: {e}")
+        # Obter os dados filtrados - usando StringIO para evitar FutureWarning
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
         
         if filtered_df.empty:
             return "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
@@ -582,52 +600,53 @@ def update_highlights(sort_by, start_date, end_date):
     Output("insight-text", "children"),
     [Input("sort-dropdown", "value"),
      Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")]
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
 )
-def update_insights(sort_by, start_date, end_date):
-    if df.empty:
-        return "Nenhum dado disponível para análise."
-    
-    filtered_df = df.copy()
-    
-    if start_date and end_date:
-        start = pd.to_datetime(start_date)
-        end = pd.to_datetime(end_date)
-        filtered_df = filtered_df[
-            (filtered_df['data_publicacao'] >= start) &
-            (filtered_df['data_publicacao'] <= end)
+def update_insights(sort_by, start_date, end_date, session_data):
+    try:
+        if not session_data:
+            return "Nenhum dado disponível para análise."
+        
+        # Obter os dados filtrados - usando StringIO para evitar FutureWarning
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
+        
+        if filtered_df.empty:
+            return "Nenhum dado disponível para o período selecionado."
+        
+        # Gerar insights baseados nos dados
+        total_views = filtered_df['visualizacoes'].sum()
+        avg_engagement = filtered_df['taxa_engajamento'].mean()
+        most_engaging_country = "Europa" if filtered_df.empty else "Mônaco"  # Exemplo
+        days_with_most_views = "finais de semana" if filtered_df.empty else "segunda-feira"  # Exemplo
+        
+        # Texto de insight dinâmico
+        insights = [
+            html.P([
+                "Os destaques da F1 acumularam ", 
+                html.B(f"{total_views:,}"), 
+                " visualizações no período selecionado, com uma taxa média de engajamento de ",
+                html.B(f"{avg_engagement:.2f}%"), 
+                "."
+            ]),
+            html.P([
+                "Os Grands Prix realizados na ", 
+                html.B(f"{most_engaging_country}"), 
+                " tendem a gerar maior engajamento do público, especialmente quando publicados em ",
+                html.B(f"{days_with_most_views}"), 
+                "."
+            ]),
+            html.P([
+                "Vídeos que mencionam duelos entre pilotos no título recebem em média ",
+                html.B("37% mais comentários"), 
+                " do que outros highlights."
+            ])
         ]
-    
-    # Gerar insights baseados nos dados
-    total_views = filtered_df['visualizacoes'].sum()
-    avg_engagement = filtered_df['taxa_engajamento'].mean()
-    most_engaging_country = "Europa" if filtered_df.empty else "Mônaco"  # Exemplo
-    days_with_most_views = "finais de semana" if filtered_df.empty else "segunda-feira"  # Exemplo
-    
-    # Texto de insight dinâmico
-    insights = [
-        html.P([
-            "Os destaques da F1 acumularam ", 
-            html.B(f"{total_views:,}"), 
-            " visualizações no período selecionado, com uma taxa média de engajamento de ",
-            html.B(f"{avg_engagement:.2f}%"), 
-            "."
-        ]),
-        html.P([
-            "Os Grands Prix realizados na ", 
-            html.B(f"{most_engaging_country}"), 
-            " tendem a gerar maior engajamento do público, especialmente quando publicados em ",
-            html.B(f"{days_with_most_views}"), 
-            "."
-        ]),
-        html.P([
-            "Vídeos que mencionam duelos entre pilotos no título recebem em média ",
-            html.B("37% mais comentários"), 
-            " do que outros highlights."
-        ])
-    ]
-    
-    return insights
+        
+        return insights
+    except Exception as e:
+        logger.error(f"Erro ao atualizar insights: {e}", exc_info=True)
+        return html.P("Erro ao gerar insights.")
 
 # Callbacks para os insights dos gráficos
 @app.callback(
@@ -640,23 +659,16 @@ def update_insights(sort_by, start_date, end_date):
      Output("seasons-insight", "children")],
     [Input("sort-dropdown", "value"),
      Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")]
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
 )
-def update_graph_insights(sort_by, start_date, end_date):
-    if df.empty:
-        return ["Nenhum dado disponível para análise."] * 7
-    
+def update_graph_insights(sort_by, start_date, end_date, session_data):
     try:
-        filtered_df = df.copy()
+        if not session_data:
+            return ["Nenhum dado disponível para análise."] * 7
         
-        # Aplicar filtros de data se estiverem definidos
-        if start_date and end_date:
-            start = pd.to_datetime(start_date)
-            end = pd.to_datetime(end_date)
-            filtered_df = filtered_df[
-                (filtered_df['data_publicacao'] >= start) &
-                (filtered_df['data_publicacao'] <= end)
-            ]
+        # Obter os dados filtrados - usando StringIO para evitar FutureWarning
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
         
         if filtered_df.empty:
             return ["Nenhum dado disponível para o período selecionado."] * 7
@@ -678,9 +690,8 @@ def update_graph_insights(sort_by, start_date, end_date):
         
         return [views_insight, engagement_insight, top_videos_insight, correlation_insight, 
                 distribution_insight, growth_insight, seasons_insight]
-        
     except Exception as e:
-        logger.error(f"Erro ao atualizar insights dos gráficos: {e}")
+        logger.error(f"Erro ao atualizar insights dos gráficos: {e}", exc_info=True)
         return ["Erro ao gerar insights."] * 7
 
 @app.callback(
@@ -690,39 +701,34 @@ def update_graph_insights(sort_by, start_date, end_date):
      Output("avg-engagement", "children")],
     [Input("sort-dropdown", "value"),
      Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")]
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
 )
-def update_metrics(sort_by, start_date, end_date):
-    logger.info(f"Atualizando métricas com filtros: sort_by={sort_by}, start_date={start_date}, end_date={end_date}")
-    
-    if df.empty:
-        return "0", "0", "0", "0%"
-    
+def update_metrics(sort_by, start_date, end_date, session_data):
     try:
-        filtered_df = df.copy()
+        if not session_data:
+            return "0", "0", "0", "0%"
         
-        # Aplicar filtros de data se estiverem definidos
-        if start_date and end_date:
-            try:
-                start = pd.to_datetime(start_date)
-                end = pd.to_datetime(end_date)
-                filtered_df = filtered_df[
-                    (filtered_df['data_publicacao'] >= start) &
-                    (filtered_df['data_publicacao'] <= end)
-                ]
-            except Exception as e:
-                logger.error(f"Erro ao filtrar por data: {e}")
+        # Obter os dados filtrados
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
         
+        if filtered_df.empty:
+            return "0", "0", "0", "0%"
+        
+        # Garantir que as colunas numéricas sejam do tipo correto
+        for col in ['visualizacoes', 'curtidas', 'comentarios']:
+            if col in filtered_df.columns:
+                filtered_df[col] = pd.to_numeric(filtered_df[col], errors='coerce').fillna(0)
+        
+        # Calcular métricas
         total_videos = len(filtered_df)
         total_views = filtered_df['visualizacoes'].sum()
         total_likes = filtered_df['curtidas'].sum()
         
-        # Verificar se a coluna taxa_engajamento existe
-        if 'taxa_engajamento' in filtered_df.columns:
-            avg_engagement = filtered_df['taxa_engajamento'].mean()
-        else:
-            # Calcular a taxa de engajamento diretamente
-            avg_engagement = ((filtered_df['curtidas'] + filtered_df['comentarios']) / filtered_df['visualizacoes'] * 100).mean()
+        # Calcular a taxa de engajamento
+        total_engagement = filtered_df['curtidas'] + filtered_df['comentarios']
+        total_views_non_zero = filtered_df['visualizacoes'].replace(0, 1)
+        avg_engagement = (total_engagement / total_views_non_zero * 100).mean()
         
         logger.info(f"Métricas calculadas: {total_videos} vídeos, {total_views} visualizações, {total_likes} curtidas, {avg_engagement:.2f}% engajamento")
         
@@ -746,295 +752,357 @@ def update_metrics(sort_by, start_date, end_date):
      Output("seasons-comparison", "figure")],
     [Input("sort-dropdown", "value"),
      Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")]
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
 )
-def update_graphs(sort_by, start_date, end_date):
-    if df.empty:
-        return [go.Figure() for _ in range(7)]
-    
-    filtered_df = df.copy()
-    
-    # Aplicar filtros de data
-    if start_date and end_date:
-        filtered_df = filtered_df[
-            (filtered_df['data_publicacao'] >= start_date) &
-            (filtered_df['data_publicacao'] <= end_date)
-        ]
-    
-    # Garantir que os dados estejam ordenados por data
-    filtered_df = filtered_df.sort_values('data_publicacao')
-    
-    # Layout base para todos os gráficos
-    layout_base = dict(
-        template='plotly_dark',
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font_color='white',
-        showlegend=True,
-        margin=dict(t=30, l=10, r=10, b=10),
-        autosize=True,
-        hovermode='closest'
-    )
-    
-    # 1. Gráfico de visualizações
-    fig_views = px.line(
-        filtered_df,
-        x='data_publicacao',
-        y='visualizacoes',
-        title='Visualizações ao Longo do Tempo'
-    )
-    fig_views.update_layout(layout_base)
-    
-    # 2. Gráfico de engajamento
-    fig_engagement = px.line(
-        filtered_df,
-        x='data_publicacao',
-        y=['curtidas', 'comentarios'],
-        title='Engajamento ao Longo do Tempo'
-    )
-    fig_engagement.update_layout(layout_base)
-    
-    # 3. Top vídeos - usar título truncado
-    top_df = filtered_df.nlargest(10, 'visualizacoes')
-    top_df['titulo_display'] = top_df['titulo'].apply(truncate_title)
-    fig_top = px.bar(
-        top_df,
-        x='visualizacoes',
-        y='titulo_display',
-        orientation='h',
-        title='Top 10 Vídeos mais Visualizados'
-    )
-    fig_top.update_layout(layout_base)
-    
-    # 4. Correlação
-    fig_corr = px.imshow(
-        filtered_df[['visualizacoes', 'curtidas', 'comentarios']].corr(),
-        title='Correlação entre Métricas'
-    )
-    fig_corr.update_layout(layout_base)
-    
-    # 5. Distribuição de engajamento
-    fig_dist = px.scatter(
-        filtered_df,
-        x='visualizacoes',
-        y='taxa_engajamento',
-        title='Distribuição do Engajamento',
-        hover_data=['titulo_truncado']
-    )
-    fig_dist.update_layout(layout_base)
-    
-    # 6. Taxa de crescimento
-    fig_growth = px.line(
-        filtered_df,
-        x='data_publicacao',
-        y='media_visualizacoes_diarias',
-        title='Taxa de Crescimento Diário'
-    )
-    fig_growth.update_layout(layout_base)
-    
-    # 7. Comparação de temporadas
-    fig_seasons = px.bar(
-        filtered_df.groupby('temporada')['visualizacoes'].mean().reset_index(),
-        x='temporada',
-        y='visualizacoes',
-        title='Média de Visualizações por Temporada'
-    )
-    fig_seasons.update_layout(layout_base)
-    
-    # Configurações adicionais para responsividade
-    for fig in [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]:
-        fig.update_layout(
-            xaxis=dict(
-                tickangle=45,
-                showgrid=True,
-                gridcolor='rgba(128,128,128,0.2)',
-                automargin=True
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridcolor='rgba(128,128,128,0.2)',
-                automargin=True
-            ),
-            hoverlabel=dict(
-                bgcolor='#2b3e50',
-                font_size=12,
-                font_family='Arial'
+def update_graphs(sort_by, start_date, end_date, session_data):
+    try:
+        if not session_data:
+            return [go.Figure() for _ in range(7)]
+        
+        # Obter dados filtrados
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
+        
+        if filtered_df.empty:
+            # Retornar gráficos vazios com mensagem
+            empty_fig = go.Figure()
+            empty_fig.update_layout(
+                annotations=[dict(
+                    text="Nenhum dado disponível para o período selecionado",
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.5, showarrow=False
+                )]
             )
+            # Criar uma lista de figuras vazias em vez de tentar copiar
+            return [empty_fig for _ in range(7)]
+        
+        # Garantir que as colunas numéricas sejam do tipo correto
+        for col in ['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento', 'media_visualizacoes_diarias']:
+            if col in filtered_df.columns:
+                filtered_df[col] = pd.to_numeric(filtered_df[col], errors='coerce').fillna(0)
+        
+        # Layout base para todos os gráficos
+        layout_base = dict(
+            template='plotly_dark',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font_color='white',
+            showlegend=True,
+            margin=dict(t=30, l=10, r=10, b=10),
+            autosize=True,
+            hovermode='closest'
         )
-    
-    return [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]
+        
+        # 1. Gráfico de visualizações
+        time_series_df = filtered_df.copy().sort_values('data_publicacao')
+        fig_views = px.line(
+            time_series_df,
+            x='data_publicacao',
+            y='visualizacoes',
+            title='Visualizações ao Longo do Tempo'
+        )
+        fig_views.update_layout(layout_base)
+        
+        # 2. Gráfico de engajamento
+        fig_engagement = px.line(
+            time_series_df,
+            x='data_publicacao',
+            y=['curtidas', 'comentarios'],
+            title='Engajamento ao Longo do Tempo'
+        )
+        fig_engagement.update_layout(layout_base)
+        
+        # 3. Top vídeos
+        top_df = filtered_df.nlargest(10, 'visualizacoes')
+        fig_top = px.bar(
+            top_df,
+            x='visualizacoes',
+            y='titulo',
+            orientation='h',
+            title='Top 10 Vídeos mais Visualizados'
+        )
+        fig_top.update_layout(layout_base)
+        
+        # 4. Correção
+        fig_corr = px.imshow(
+            filtered_df[['visualizacoes', 'curtidas', 'comentarios']].corr(),
+            title='Correlação entre Métricas'
+        )
+        fig_corr.update_layout(layout_base)
+        
+        # 5. Distribuição de engajamento
+        fig_dist = px.scatter(
+            filtered_df,
+            x='visualizacoes',
+            y='taxa_engajamento',
+            title='Distribuição do Engajamento',
+            hover_data=['titulo']
+        )
+        fig_dist.update_layout(layout_base)
+        
+        # 6. Taxa de crescimento
+        fig_growth = px.line(
+            time_series_df,
+            x='data_publicacao',
+            y='media_visualizacoes_diarias',
+            title='Taxa de Crescimento Diário'
+        )
+        fig_growth.update_layout(layout_base)
+        
+        # 7. Comparação de temporadas
+        fig_seasons = update_seasons_comparison(filtered_df)
+        
+        # Configurações adicionais para todos os gráficos
+        for fig in [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]:
+            fig.update_layout(
+                xaxis=dict(
+                    tickangle=45,
+                    showgrid=True,
+                    gridcolor='rgba(128,128,128,0.2)',
+                    automargin=True
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridcolor='rgba(128,128,128,0.2)',
+                    automargin=True
+                ),
+                hoverlabel=dict(
+                    bgcolor='#2b3e50',
+                    font_size=12,
+                    font_family='Arial'
+                )
+            )
+        
+        return [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]
+    except Exception as e:
+        logger.error(f"Erro ao atualizar gráficos: {e}", exc_info=True)
+        # Retornar gráficos vazios com mensagem de erro
+        error_fig = go.Figure()
+        error_fig.add_annotation(
+            text=f"Erro ao gerar gráfico: {str(e)}",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=16, color="red")
+        )
+        # Criar uma lista de figuras de erro em vez de tentar copiar
+        return [error_fig for _ in range(7)]
+
+def update_seasons_comparison(df):
+    try:
+        if 'temporada' not in df.columns:
+            return empty_figure("Dados de temporada não disponíveis")
+            
+        # Garantir que as colunas numéricas sejam do tipo correto
+        for col in ['visualizacoes', 'curtidas', 'comentarios']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        # Agrupar por temporada e calcular estatísticas
+        season_data = df.groupby('temporada').agg({
+            'visualizacoes': 'mean',
+            'curtidas': 'mean',
+            'comentarios': 'mean'
+        }).reset_index()
+        
+        # Verificar quantas temporadas temos
+        unique_seasons = season_data['temporada'].unique()
+        logger.info(f"Temporadas disponíveis: {unique_seasons}")
+        
+        if len(unique_seasons) >= 2:
+            # Se temos mais de uma temporada, fazer comparação
+            fig = px.bar(season_data,
+                        x='temporada',
+                        y=['visualizacoes', 'curtidas', 'comentarios'],
+                        title='Comparação entre Temporadas',
+                        barmode='group',
+                        labels={
+                            'temporada': 'Temporada',
+                            'value': 'Média',
+                            'variable': 'Métrica'
+                        })
+        else:
+            # Se temos apenas uma temporada, mostrar métricas da temporada atual
+            temp = unique_seasons[0]
+            fig = px.bar(season_data,
+                        x='temporada',
+                        y=['visualizacoes', 'curtidas', 'comentarios'],
+                        title=f'Métricas da Temporada {temp}',
+                        barmode='group',
+                        labels={
+                            'temporada': 'Temporada',
+                            'value': 'Média',
+                            'variable': 'Métrica'
+                        })
+        
+        # Aplicar layout base
+        fig.update_layout(
+            template='plotly_dark',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font_color='white',
+            showlegend=True,
+            margin=dict(t=30, l=10, r=10, b=10),
+            autosize=True,
+            hovermode='closest'
+        )
+        
+        return fig
+    except Exception as e:
+        logger.error(f"Erro ao gerar comparação de temporadas: {e}", exc_info=True)
+        return empty_figure(f"Erro ao gerar comparação de temporadas: {str(e)}")
+
+def empty_figure(message):
+    try:
+        fig = go.Figure()
+        fig.add_annotation(
+            text=message,
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=16, color="white")
+        )
+        fig.update_layout(
+            template='plotly_dark',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font_color='white',
+            showlegend=False,
+            margin=dict(t=30, l=10, r=10, b=10),
+            autosize=True,
+            hovermode='closest'
+        )
+        return fig
+    except Exception as e:
+        logger.error(f"Erro ao criar figura vazia: {e}", exc_info=True)
+        # Retornar uma figura vazia básica em caso de erro
+        return go.Figure()
 
 @app.callback(
     Output("videos-table", "children"),
     [Input("sort-dropdown", "value"),
      Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")]
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
 )
-def update_table(sort_by, start_date, end_date):
-    if df.empty:
-        return html.Div("Nenhum dado disponível")
-    
+def update_table(sort_by, start_date, end_date, session_data):
     try:
-        filtered_df = df.copy()
+        if not session_data:
+            return html.Div("Nenhum dado disponível")
         
-        # Aplicar filtros de data se estiverem definidos
-        if start_date and end_date:
-            start = pd.to_datetime(start_date)
-            end = pd.to_datetime(end_date)
-            filtered_df = filtered_df[
-                (filtered_df['data_publicacao'] >= start) &
-                (filtered_df['data_publicacao'] <= end)
-            ]
+        # Obter dados filtrados
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
         
         if filtered_df.empty:
             return html.Div("Nenhum dado disponível para o período selecionado")
         
-        # Aplicar ordenação
-        if sort_by:
-            try:
-                column, order = sort_by.split('_')
-                if column in filtered_df.columns:
-                    filtered_df = filtered_df.sort_values(
-                        by=column,
-                        ascending=(order == 'asc')
-                    )
-            except ValueError:
-                pass
+        # Cópia segura para evitar modificações indesejadas
+        display_df = filtered_df.copy()
         
-        # Criar a tabela com configurações responsivas
+        # Garantir que as colunas numéricas sejam do tipo correto
+        for col in ['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento']:
+            if col in display_df.columns:
+                display_df[col] = pd.to_numeric(display_df[col], errors='coerce').fillna(0)
+        
+        # Formatar a coluna de data para exibição
+        if 'data_publicacao' in display_df.columns:
+            try:
+                # Garantir que a coluna é datetime
+                if not pd.api.types.is_datetime64_any_dtype(display_df['data_publicacao']):
+                    display_df['data_publicacao'] = pd.to_datetime(display_df['data_publicacao'], errors='coerce')
+                
+                # Formatar apenas se for datetime válido
+                display_df['data_publicacao'] = display_df['data_publicacao'].apply(
+                    lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else 'Data inválida'
+                )
+            except Exception as e:
+                logger.error(f"Erro ao formatar data: {e}")
+                display_df['data_publicacao'] = 'Data inválida'
+        
+        # Truncar títulos longos
+        if 'titulo' in display_df.columns:
+            display_df['titulo'] = display_df['titulo'].apply(truncate_title)
+        
+        # Criar a tabela
         table = dash_table.DataTable(
-            data=filtered_df.to_dict('records'),
-            columns=[
-                {"name": "Título", "id": "titulo"},
-                {"name": "Data", "id": "data_publicacao"},
-                {"name": "Visualizações", "id": "visualizacoes", "type": "numeric", "format": {"specifier": ","}},
-                {"name": "Curtidas", "id": "curtidas", "type": "numeric", "format": {"specifier": ","}},
-                {"name": "Comentários", "id": "comentarios", "type": "numeric", "format": {"specifier": ","}},
-                {"name": "Taxa Eng. (%)", "id": "taxa_engajamento", "type": "numeric", "format": {"specifier": ".2f"}}
-            ],
+            data=display_df.to_dict('records'),
+            columns=[{'name': col, 'id': col} for col in display_df.columns],
             style_table={
                 'overflowX': 'auto',
-                'minWidth': '100%'
+                'maxHeight': '400px'  # Limitar altura da tabela
             },
             style_cell={
                 'textAlign': 'left',
-                'padding': '10px',
-                'backgroundColor': '#2b3e50',
-                'color': '#ecf0f1',
-                'border': '1px solid #34495e',
-                'minWidth': '100px',
+                'padding': '5px',  # Reduzir padding
                 'whiteSpace': 'normal',
-                'height': 'auto'
-            },
-            style_data={
-                'whiteSpace': 'normal',
-                'height': 'auto'
+                'height': 'auto',
+                'minWidth': '80px',  # Reduzir largura mínima
+                'maxWidth': '200px',  # Reduzir largura máxima
+                'fontSize': '12px'  # Reduzir tamanho da fonte
             },
             style_header={
-                'backgroundColor': '#1a252f',
+                'backgroundColor': 'rgb(30, 30, 30)',
+                'color': 'white',
                 'fontWeight': 'bold',
-                'color': '#9b59b6',
-                'whiteSpace': 'normal',
-                'height': 'auto'
+                'padding': '5px',  # Reduzir padding do cabeçalho
+                'fontSize': '12px'  # Reduzir tamanho da fonte do cabeçalho
             },
-            style_data_conditional=[
-                {
-                    'if': {'row_index': 'odd'},
-                    'backgroundColor': '#34495e'
-                }
-            ],
-            page_size=10,
+            style_data={
+                'backgroundColor': 'rgb(50, 50, 50)',
+                'color': 'white'
+            },
+            page_size=15,  # Aumentar número de linhas por página
             sort_action='native',
-            filter_action='native',
-            style_as_list_view=True
+            sort_mode='single',
+            filter_action='native'
         )
         
         return table
-        
     except Exception as e:
-        logger.error(f"Erro ao atualizar tabela: {e}")
+        logger.error(f"Erro ao atualizar tabela: {e}", exc_info=True)
         return html.Div(f"Erro ao gerar tabela: {str(e)}")
-
-# Corrigir a extração de pilotos para garantir que Hamilton seja corretamente detectado
-try:
-    # Vamos reprocessar a detecção de pilotos nos títulos
-    pilotos = ['Hamilton', 'Verstappen', 'Leclerc', 'Norris', 'Pérez', 'Sainz', 'Alonso', 'Russell']
-    
-    # Registrar quantos vídeos mencionam cada piloto
-    for piloto in pilotos:
-        # Verificar menções nos títulos (case insensitive)
-        df[f'mencao_{piloto}'] = df['titulo'].str.contains(piloto, case=False).astype(int)
-        
-        # Verificar também nas descrições se disponíveis
-        if 'descricao' in df.columns:
-            df[f'mencao_{piloto}'] = df[f'mencao_{piloto}'] | df['descricao'].str.contains(piloto, case=False).astype(int)
-        
-        # Contar quantas menções existem para o piloto
-        mencoes = df[f'mencao_{piloto}'].sum()
-        logger.info(f"Piloto {piloto} é mencionado em {mencoes} vídeos")
-        
-    # Se nenhum piloto for mencionado, criar dados simulados para demonstração
-    total_mencoes = sum(df[f'mencao_{piloto}'].sum() for piloto in pilotos)
-    if total_mencoes == 0:
-        logger.warning("Nenhum piloto detectado nos dados, criando dados simulados")
-        # Atribuir valores aleatórios de menções
-        for piloto in pilotos:
-            # Atribuir pelo menos uma menção para cada piloto
-            df.loc[df.index[:3], f'mencao_{piloto}'] = 1
-            
-        # Garantir que Hamilton tenha mais menções para refletir sua popularidade
-        if len(df) > 5:
-            df.loc[df.index[:5], 'mencao_Hamilton'] = 1
-            
-    logger.info("Atualização de detecção de pilotos concluída")
-except Exception as e:
-    logger.error(f"Erro ao atualizar detecção de pilotos: {e}", exc_info=True)
 
 # Callback para debug dos filtros
 @app.callback(
     Output("debug-output", "children"),
     [Input("sort-dropdown", "value"),
      Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")]
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
 )
-def update_debug_output(sort_by, start_date, end_date):
-    if df.empty:
-        return "DataFrame está vazio"
-    
+def update_debug_output(sort_by, start_date, end_date, session_data):
     try:
-        filtered_df = df.copy()
+        if not session_data:
+            return "Nenhum dado disponível na sessão"
+            
+        # Obter dados filtrados
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
+        
+        if filtered_df.empty:
+            return "Nenhum dado disponível após aplicar filtros"
+            
+        # Gerar informações de debug
         debug_info = []
-        
-        # Info sobre datas
-        if start_date and end_date:
-            debug_info.append(f"Período selecionado: {start_date} até {end_date}")
-        
-        # Info sobre ordenação
-        if sort_by:
-            column, order = sort_by.split('_')
-            debug_info.append(f"Ordenação: {column} ({'ascendente' if order == 'asc' else 'descendente'})")
-        
-        # Info sobre dados
         debug_info.append(f"Total de registros: {len(filtered_df)}")
-        if 'visualizacoes' in filtered_df.columns:
-            debug_info.append(f"Total de visualizações: {filtered_df['visualizacoes'].sum():,}")
+        debug_info.append(f"Período: {filtered_df['data_publicacao'].min()} a {filtered_df['data_publicacao'].max()}")
+        debug_info.append(f"Colunas disponíveis: {', '.join(filtered_df.columns)}")
+        debug_info.append(f"Temporadas encontradas: {filtered_df['temporada'].unique().tolist()}")
         
-        return html.Div([html.P(info) for info in debug_info])
-        
+        return "\n".join(debug_info)
     except Exception as e:
-        logger.error(f"Erro ao atualizar debug output: {e}")
-        return html.Div(f"Erro ao gerar debug output: {str(e)}")
+        logger.error(f"Erro ao gerar debug output: {e}", exc_info=True)
+        return f"Erro ao gerar debug output: {str(e)}"
 
 server = app.server  # Adicionar esta linha no fim do arquivo
 
 if __name__ == '__main__':
     # Verificar se conseguimos carregar os dados
-    if df.empty:
+    if initial_df.empty:
         logger.error("O DataFrame está vazio! O dashboard não mostrará dados corretos.")
         print("ATENÇÃO: Não foi possível carregar os dados. Verifique o arquivo CSV e execute novamente.")
     else:
-        logger.info(f"Dashboard iniciando com {len(df)} registros.")
-        print(f"Dashboard iniciando com {len(df)} registros de vídeos da F1.")
+        logger.info(f"Dashboard iniciando com {len(initial_df)} registros.")
+        print(f"Dashboard iniciando com {len(initial_df)} registros de vídeos da F1.")
     
     # Obtenha a porta do ambiente ou use 8050 como fallback
     port = int(os.environ.get('PORT', 8050))
