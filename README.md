@@ -96,7 +96,7 @@ http://127.0.0.1:8050/
 ### Segurança
 - O gerenciamento seguro das credenciais da API exigiu implementação cuidadosa com variáveis de ambiente.
 
-## Frameworks
+### Frameworks
 - Tive um problema com o Streamlib, tendo que migrar para o DASH, simplesmente por mais simples que fosse o código a interface ficava preta.
 
 
