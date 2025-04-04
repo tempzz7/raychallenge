@@ -1109,4 +1109,4 @@ if __name__ == '__main__':
     
     # Use localhost em vez de 0.0.0.0 para melhor compatibilidade
     print("Dashboard disponível em: http://localhost:8050/")
-    app.run(debug=True, host='localhost', port=port)
+    app.run_server(debug=True, host='localhost', port=port)
