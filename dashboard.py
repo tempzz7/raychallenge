@@ -77,19 +77,19 @@ def safe_engagement_rate(row):
         logger.error(f"Erro ao calcular taxa de engajamento: {e}")
         return 0.0
 
-# Função segura para carregar dados
 def load_data():
+    """Carrega os dados do CSV em tempo real."""
     try:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         csv_path = os.path.join(current_dir, 'f1_2024_highlights.csv')
         
-        logger.info(f"Diretório atual: {current_dir}")
-        logger.info(f"Tentando carregar o arquivo CSV de: {csv_path}")
-        
         if not os.path.exists(csv_path):
-            logger.error(f"Arquivo CSV não encontrado em: {csv_path}")
             raise FileNotFoundError(f"Arquivo CSV não encontrado em: {csv_path}")
         
+        # Carregar o CSV
+        df = pd.read_csv(csv_path, encoding='utf-8', on_bad_lines='skip')
+        
+        # Converter a coluna de data
         # Verificar tamanho do arquivo
         file_size = os.path.getsize(csv_path)
         logger.info(f"Tamanho do arquivo: {file_size} bytes")
@@ -383,7 +383,7 @@ app.layout = dbc.Container([
                     dcc.Graph(
                         id="views-time-graph",
                         config={'responsive': True},
-                        style={'height': '300px'}
+                        style={'height': '400px', 'marginBottom': '20px'}  # Altura ajustada
                     )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
@@ -396,7 +396,7 @@ app.layout = dbc.Container([
                     dcc.Graph(
                         id="engagement-time-graph",
                         config={'responsive': True},
-                        style={'height': '300px'}
+                        style={'height': '400px'}  # Altura ajustada
                     )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
@@ -412,7 +412,7 @@ app.layout = dbc.Container([
                     dcc.Graph(
                         id="top-videos-graph",
                         config={'responsive': True},
-                        style={'height': {'xs': '400px', 'md': '300px'}}
+                        style={'height': '400px'}  # Altura ajustada
                     )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
@@ -425,7 +425,7 @@ app.layout = dbc.Container([
                     dcc.Graph(
                         id="correlation-graph",
                         config={'responsive': True},
-                        style={'height': {'xs': '400px', 'md': '300px'}}
+                        style={'height': '400px'}  # Altura ajustada
                     )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
@@ -441,7 +441,7 @@ app.layout = dbc.Container([
                     dcc.Graph(
                         id="engagement-distribution",
                         config={'responsive': True},
-                        style={'height': {'xs': '400px', 'md': '300px'}}
+                        style={'height': '400px'}  # Altura ajustada
                     )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
@@ -454,7 +454,7 @@ app.layout = dbc.Container([
                     dcc.Graph(
                         id="daily-growth-rate",
                         config={'responsive': True},
-                        style={'height': {'xs': '400px', 'md': '300px'}}
+                        style={'height': '400px'}  # Altura ajustada
                     )
                 ])
             ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
@@ -773,7 +773,6 @@ def update_graphs(sort_by, start_date, end_date, session_data):
                     x=0.5, y=0.5, showarrow=False
                 )]
             )
-            # Criar uma lista de figuras vazias em vez de tentar copiar
             return [empty_fig for _ in range(7)]
         
         # Garantir que as colunas numéricas sejam do tipo correto
@@ -823,7 +822,7 @@ def update_graphs(sort_by, start_date, end_date, session_data):
         )
         fig_top.update_layout(layout_base)
         
-        # 4. Correção
+        # 4. Correlação
         fig_corr = px.imshow(
             filtered_df[['visualizacoes', 'curtidas', 'comentarios']].corr(),
             title='Correlação entre Métricas'
@@ -885,7 +884,6 @@ def update_graphs(sort_by, start_date, end_date, session_data):
             showarrow=False,
             font=dict(size=16, color="red")
         )
-        # Criar uma lista de figuras de erro em vez de tentar copiar
         return [error_fig for _ in range(7)]
 
 def update_seasons_comparison(df):
@@ -1109,4 +1107,4 @@ if __name__ == '__main__':
     
     # Use localhost em vez de 0.0.0.0 para melhor compatibilidade
     print("Dashboard disponível em: http://localhost:8050/")
-    app.run_server(debug=True, host='localhost', port=port)
+    app.run(debug=True, host='localhost', port=port)
