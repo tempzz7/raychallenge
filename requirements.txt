@@ -7,4 +7,10 @@ python-dotenv==1.0.0
 numpy==1.26.2
 gunicorn==21.2.0
 packaging>=20.0
+Flask-Caching==2.1.0
+tenacity==8.2.3
+openpyxl==3.1.2
+ratelimit==2.2.1
+statsmodels==0.14.0
+
 

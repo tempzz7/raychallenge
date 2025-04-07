@@ -11,10 +11,13 @@ from dotenv import load_dotenv
 import re
 import numpy as np
 import logging
-from functools import lru_cache
+from functools import lru_cache, wraps
 from io import StringIO
 from dash.exceptions import PreventUpdate
-
+import flask_caching
+import cProfile
+import io
+import pstats
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +37,13 @@ app = dash.Dash(
     assets_folder='assets',
     suppress_callback_exceptions=True
 )
+
+# Configuração do cache
+cache = flask_caching.Cache(app.server, config={
+    'CACHE_TYPE': 'filesystem',
+    'CACHE_DIR': 'cache-directory',
+    'CACHE_DEFAULT_TIMEOUT': 300
+})
 
 # Estilos base para componentes
 DROPDOWN_STYLE = {
@@ -59,17 +69,20 @@ DATE_PICKER_STYLE = {
 
 # Layout base para gráficos
 GRAPH_LAYOUT_BASE = {
-    'template': 'plotly',
-    'plot_bgcolor': 'rgba(249,250,251,0)',
-    'paper_bgcolor': 'rgba(255,255,255,0)',
+    'template': 'plotly_white',
+    'plot_bgcolor': '#FFFFFF',
+    'paper_bgcolor': '#FFFFFF',
     'font': {
         'family': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        'color': '#1A202C'
+        'color': '#1A202C',
+        'size': 12
     },
     'showlegend': True,
-    'margin': dict(t=30, l=10, r=10, b=10),
+    'margin': dict(t=50, l=50, r=30, b=50),
     'autosize': True,
-    'hovermode': 'closest'
+    'hovermode': 'closest',
+    'xaxis': {'gridcolor': '#E2E8F0'},
+    'yaxis': {'gridcolor': '#E2E8F0'}
 }
 
 min_date = pd.to_datetime('2023-01-01', utc=True)
@@ -114,6 +127,21 @@ def safe_engagement_rate(row):
         logger.error(f"Erro ao calcular taxa de engajamento: {e}")
         return 0.0
 
+def profile(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        pr = cProfile.Profile()
+        pr.enable()
+        result = func(*args, **kwargs)
+        pr.disable()
+        s = io.StringIO()
+        ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+        ps.print_stats()
+        logger.info(f"Performance profile for {func.__name__}:\n{s.getvalue()}")
+        return result
+    return wrapper
+
+@profile
 def load_data():
     """Carrega os dados do CSV em tempo real."""
     try:
@@ -122,11 +150,14 @@ def load_data():
         
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"Arquivo CSV não encontrado em: {csv_path}")
+            
+        logger.info(f"Carregando dados do arquivo: {csv_path}")
         
         # Carregar o CSV
         df = pd.read_csv(csv_path, encoding='utf-8', on_bad_lines='skip')
+        logger.info(f"Colunas originais: {df.columns.tolist()}")
         
-        # Renomear colunas para nomes mais amigáveis
+        # Mapear colunas usando os nomes exatos do CSV
         column_mapping = {
             'video_id': 'ID do Vídeo',
             'titulo': 'Título',
@@ -138,13 +169,7 @@ def load_data():
             'thumbnail': 'Thumbnail',
             'descricao': 'Descrição',
             'tags': 'Tags',
-            'canal': 'Canal',
-            'taxa_engajamento': 'Taxa de Engajamento',
-            'media_visualizacoes_diarias': 'Média de Visualizações Diárias',
-            'dias_desde_publicacao': 'Dias Desde Publicação',
-            'proporcao_curtidas_visualizacoes': 'Proporção Curtidas/Visualizações',
-            'proporcao_comentarios_visualizacoes': 'Proporção Comentários/Visualizações',
-            'temporada': 'Temporada'
+            'canal': 'Canal'
         }
         
         df = df.rename(columns=column_mapping)
@@ -218,24 +243,32 @@ initial_df = load_data()
 
 # Função central para aplicar filtros - evita repetição de código
 @lru_cache(maxsize=32)
+@profile
 def apply_filters(df_json, start_date, end_date, sort_by, sort_order):
     try:
         # Converter JSON para DataFrame usando StringIO para evitar FutureWarning
         df = pd.read_json(StringIO(df_json), orient='split')
+        
+        logger.info(f"Colunas após carregar JSON: {df.columns.tolist()}")
+        logger.info(f"Primeiras linhas do DataFrame: {df.head()}")
         
         # Converter datas para datetime se forem strings
         if isinstance(start_date, str):
             start_date = pd.to_datetime(start_date, utc=True)
         if isinstance(end_date, str):
             end_date = pd.to_datetime(end_date, utc=True)
+        
+        # Garantir que a coluna de data está presente e é datetime
+        date_column = 'data_publicacao' if 'data_publicacao' in df.columns else 'Data de Publicação'
+        if date_column in df.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df[date_column]):
+                df[date_column] = pd.to_datetime(df[date_column], utc=True)
             
-        # Garantir que a coluna Data de Publicação é datetime
-        if not pd.api.types.is_datetime64_any_dtype(df['Data de Publicação']):
-            df['Data de Publicação'] = pd.to_datetime(df['Data de Publicação'], utc=True)
-            
-        # Aplicar filtros de data
-        df = df[(df['Data de Publicação'] >= start_date) & 
-                (df['Data de Publicação'] <= end_date)]
+            # Aplicar filtros de data
+            df = df[(df[date_column] >= start_date) & 
+                    (df[date_column] <= end_date)]
+        else:
+            logger.error(f"Coluna de data não encontrada. Colunas disponíveis: {df.columns.tolist()}")
                 
         # Aplicar ordenação
         if sort_by and sort_order:
@@ -271,24 +304,26 @@ def combined_data_callback(ts, n_intervals, data):
         ctx = dash.callback_context
         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
         
-        # For initialization (session-data modified_timestamp)
-        if trigger_id == 'session-data' and data is None:
-            # Initial load
-            initial_df = load_data()
-            if initial_df is not None and not initial_df.empty:
-                logger.info(f"Dados iniciais carregados com sucesso: {len(initial_df)} registros")
-                return initial_df.to_json(date_format='iso', orient='split')
-            else:
-                logger.error("Falha ao carregar dados iniciais")
-                return None
+        # For initialization or updates
+        if trigger_id in ['session-data', 'interval-component'] or data is None:
+            # Load data
+            df = load_data()
+            if df is not None and not df.empty:
+                # Garantir que as colunas numéricas sejam do tipo correto
+                numeric_columns = ['visualizacoes', 'curtidas', 'comentarios']
+                for col in numeric_columns:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 
-        # For periodic updates (interval-component)
-        elif trigger_id == 'interval-component':
-            # Load updated data
-            updated_df = load_data()
-            if updated_df is not None and not updated_df.empty:
-                logger.info(f"Dados atualizados com sucesso: {len(updated_df)} registros")
-                return updated_df.to_json(date_format='iso', orient='split')
+                # Converter a coluna de data
+                if 'data_publicacao' in df.columns:
+                    df['data_publicacao'] = pd.to_datetime(df['data_publicacao'], errors='coerce', utc=True)
+                
+                logger.info(f"Dados carregados com sucesso: {len(df)} registros")
+                return df.to_json(date_format='iso', orient='split')
+            else:
+                logger.error("Falha ao carregar dados")
+                return None
         
         # If no trigger matched or update wasn't needed, return current data
         return data
@@ -583,6 +618,61 @@ app.layout = dbc.Container([
                 ])
             ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12)
+    ]),
+
+    # Adicionar o botão de download após a tabela de vídeos
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    html.H5("Exportar Dados", className="card-title text-primary"),
+                    html.P("Faça o download dos dados filtrados em diferentes formatos.", className="text-muted"),
+                    dbc.ButtonGroup([
+                        html.Button(
+                            "Download CSV",
+                            id="btn-csv",
+                            className="btn btn-primary me-2"
+                        ),
+                        html.Button(
+                            "Download Excel",
+                            id="btn-excel",
+                            className="btn btn-primary"
+                        ),
+                    ]),
+                    dcc.Download(id="download-dataframe-csv"),
+                    dcc.Download(id="download-dataframe-excel"),
+                ])
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
+        ], xs=12)
+    ]),
+
+    # Adicionar seção para visualização animada
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    html.H5("Evolução Temporal", className="card-title text-primary"),
+                    html.P("Visualize a evolução das métricas ao longo do tempo", className="text-muted"),
+                    dcc.Graph(
+                        id="metrics-animation",
+                        config={'responsive': True},
+                        style={'height': '500px'}
+                    ),
+                    dbc.Button(
+                        "Play/Pause",
+                        id="animation-control",
+                        color="primary",
+                        className="mt-3"
+                    ),
+                    dcc.Interval(
+                        id='animation-interval',
+                        interval=1000,
+                        n_intervals=0,
+                        disabled=True
+                    )
+                ])
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
+        ], xs=12)
     ])
 ], fluid=True, className="p-3", style={'maxWidth': '1400px', 'margin': '0 auto'})
 
@@ -810,135 +900,93 @@ def update_metrics(sort_by, start_date, end_date, session_data):
         logger.error(f"Erro ao calcular métricas: {e}", exc_info=True)
         return "0", "0", "0", "0%"
 
+@profile
 def update_graphs(sort_by, start_date, end_date, session_data):
     try:
         if not session_data:
-            return [go.Figure() for _ in range(7)]
-        
-        # Obter dados filtrados
+            logger.warning("Session data is empty for graph updates.")
+            return [empty_figure("Nenhum dado disponível") for _ in range(7)]
+            
         filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
-        
         if filtered_df.empty:
-            empty_fig = go.Figure()
-            empty_fig.update_layout(
-                annotations=[dict(
-                    text="Nenhum dado disponível para o período selecionado",
-                    xref="paper", yref="paper",
-                    x=0.5, y=0.5, showarrow=False,
-                    font=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
-                )],
-                **GRAPH_LAYOUT_BASE
-            )
-            return [empty_fig for _ in range(7)]
-        
-        # Garantir que as colunas numéricas sejam do tipo correto
-        for col in ['Visualizações', 'Curtidas', 'Comentários', 'Taxa de Engajamento', 'Média de Visualizações Diárias']:
+            logger.warning("Filtered data is empty for graph updates.")
+            return [empty_figure("Nenhum dado disponível para o período selecionado") for _ in range(7)]
+
+        # Garantir que as colunas são do tipo correto
+        for col in ['Visualizações', 'Curtidas', 'Comentários', 'Taxa de Engajamento']:
             if col in filtered_df.columns:
                 filtered_df[col] = pd.to_numeric(filtered_df[col], errors='coerce').fillna(0)
-        
-        # 1. Gráfico de visualizações
-        time_series_df = filtered_df.copy().sort_values('Data de Publicação')
-        fig_views = px.line(
-            time_series_df,
-            x='Data de Publicação',
-            y='Visualizações',
-            title='Visualizações ao Longo do Tempo'
-        )
-        fig_views.update_layout(**GRAPH_LAYOUT_BASE)
-        fig_views.update_traces(line_color='#4299E1')
-        
-        # 2. Gráfico de engajamento
-        fig_engagement = px.line(
-            time_series_df,
-            x='Data de Publicação',
-            y=['Curtidas', 'Comentários'],
-            title='Engajamento ao Longo do Tempo'
-        )
-        fig_engagement.update_layout(**GRAPH_LAYOUT_BASE)
-        fig_engagement.update_traces(selector={'name': 'Curtidas'}, line_color='#ED8936')
-        fig_engagement.update_traces(selector={'name': 'Comentários'}, line_color='#9F7AEA')
-        
-        # 3. Top vídeos
-        top_df = filtered_df.nlargest(10, 'Visualizações')
-        fig_top = px.bar(
-            top_df,
-            x='Visualizações',
-            y='Título',
-            orientation='h',
-            title='Top 10 Vídeos mais Visualizados'
-        )
-        fig_top.update_layout(**GRAPH_LAYOUT_BASE)
-        
-        # 4. Correlação
-        fig_corr = px.imshow(
-            filtered_df[['Visualizações', 'Curtidas', 'Comentários']].corr(),
-            title='Correlação entre Métricas'
-        )
-        fig_corr.update_layout(**GRAPH_LAYOUT_BASE)
-        
-        # 5. Distribuição de engajamento
-        fig_dist = px.scatter(
-            filtered_df,
-            x='Visualizações',
-            y='Taxa de Engajamento',
-            title='Distribuição do Engajamento',
-            hover_data=['Título']
-        )
-        fig_dist.update_layout(**GRAPH_LAYOUT_BASE)
-        
-        # 6. Taxa de crescimento
-        fig_growth = px.line(
-            time_series_df,
-            x='Data de Publicação',
-            y='Média de Visualizações Diárias',
-            title='Taxa de Crescimento Diário'
-        )
-        fig_growth.update_layout(**GRAPH_LAYOUT_BASE)
-        
-        # 7. Comparação de temporadas
-        fig_seasons = update_seasons_comparison(filtered_df)
-        
-        # Configurações adicionais para todos os gráficos
-        for fig in [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]:
-            fig.update_layout(
-                xaxis=dict(
-                    tickangle=45,
-                    showgrid=True,
-                    gridcolor='rgba(128,128,128,0.2)',
-                    automargin=True,
-                    tickfont=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
-                ),
-                yaxis=dict(
-                    showgrid=True,
-                    gridcolor='rgba(128,128,128,0.2)',
-                    automargin=True,
-                    tickfont=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
-                ),
-                hoverlabel=dict(
-                    bgcolor='#2b3e50',
-                    font_size=12,
-                    font_family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                ),
-                title_font=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
-            )
-        
-        return [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]
+
+        # Garantir que a data está no formato correto
+        if 'Data de Publicação' in filtered_df.columns:
+            filtered_df['Data de Publicação'] = pd.to_datetime(filtered_df['Data de Publicação'], utc=True)
+
+        logger.info(f"Dados preparados para gráficos: {len(filtered_df)} registros")
+        logger.info(f"Colunas disponíveis: {filtered_df.columns.tolist()}")
+
+        # 1. Views Time Graph
+        views_time = px.line(filtered_df.sort_values('Data de Publicação'), 
+                           x='Data de Publicação', 
+                           y='Visualizações',
+                           title='Visualizações ao Longo do Tempo',
+                           labels={'Data de Publicação': 'Data', 'Visualizações': 'Total de Visualizações'})
+        views_time.update_layout(**GRAPH_LAYOUT_BASE)
+
+        # 2. Engagement Time Graph
+        eng_time = px.line(filtered_df.sort_values('Data de Publicação'),
+                          x='Data de Publicação',
+                          y='Taxa de Engajamento',
+                          title='Taxa de Engajamento ao Longo do Tempo',
+                          labels={'Data de Publicação': 'Data', 'Taxa de Engajamento': 'Taxa de Engajamento (%)'})
+        eng_time.update_layout(**GRAPH_LAYOUT_BASE)
+
+        # 3. Top Videos Graph
+        top_videos = px.bar(filtered_df.nlargest(10, 'Visualizações').sort_values('Visualizações'),
+                           x='Visualizações',
+                           y='Título',
+                           orientation='h',
+                           title='Top 10 Vídeos por Visualizações',
+                           labels={'Título': '', 'Visualizações': 'Total de Visualizações'})
+        top_videos.update_layout(**GRAPH_LAYOUT_BASE)
+
+        # 4. Correlation Graph
+        correlation = px.scatter(filtered_df,
+                               x='Visualizações',
+                               y='Curtidas',
+                               color='Taxa de Engajamento',
+                               title='Correlação: Visualizações vs Curtidas',
+                               trendline="ols",
+                               labels={'Visualizações': 'Total de Visualizações', 
+                                     'Curtidas': 'Total de Curtidas',
+                                     'Taxa de Engajamento': 'Taxa de Engajamento (%)'})
+        correlation.update_layout(**GRAPH_LAYOUT_BASE)
+
+        # 5. Engagement Distribution
+        engagement_dist = px.histogram(filtered_df,
+                                     x='Taxa de Engajamento',
+                                     title='Distribuição da Taxa de Engajamento',
+                                     labels={'Taxa de Engajamento': 'Taxa de Engajamento (%)',
+                                            'count': 'Número de Vídeos'})
+        engagement_dist.update_layout(**GRAPH_LAYOUT_BASE)
+
+        # 6. Daily Growth Rate
+        filtered_df['Taxa de Crescimento'] = (filtered_df['Média de Visualizações Diárias'] / 
+                                            filtered_df['Visualizações'] * 100)
+        growth_rate = px.line(filtered_df.sort_values('Data de Publicação'),
+                            x='Data de Publicação',
+                            y='Taxa de Crescimento',
+                            title='Taxa de Crescimento Diário',
+                            labels={'Data de Publicação': 'Data',
+                                   'Taxa de Crescimento': 'Taxa de Crescimento Diário (%)'})
+        growth_rate.update_layout(**GRAPH_LAYOUT_BASE)
+
+        # 7. Seasons Comparison (reusing existing function)
+        seasons_comp = update_seasons_comparison(filtered_df)
+
+        return [views_time, eng_time, top_videos, correlation, engagement_dist, growth_rate, seasons_comp]
     except Exception as e:
         logger.error(f"Erro ao atualizar gráficos: {e}", exc_info=True)
-        error_fig = go.Figure()
-        error_fig.add_annotation(
-            text=f"Erro ao gerar gráfico: {str(e)}",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5,
-            showarrow=False,
-            font=dict(
-                size=16,
-                color="red",
-                family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-            )
-        )
-        error_fig.update_layout(**GRAPH_LAYOUT_BASE)
-        return [error_fig for _ in range(7)]
+        return [empty_figure(f"Erro ao gerar gráfico: {str(e)}") for _ in range(7)]
 
 def update_seasons_comparison(df):
     try:
@@ -1012,17 +1060,19 @@ def empty_figure(message):
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
-            font=dict(size=16, color="white")
+            font=dict(size=16, color="#1A202C")
         )
         fig.update_layout(
-            template='plotly',
-            plot_bgcolor='rgba(249,250,251,0)',
-            paper_bgcolor='rgba(255,255,255,0)',
+            template='plotly_white',
+            plot_bgcolor='#FFFFFF',
+            paper_bgcolor='#FFFFFF',
             font_color='#1A202C',
             showlegend=False,
-            margin=dict(t=30, l=10, r=10, b=10),
+            margin=dict(t=50, l=50, r=30, b=50),
             autosize=True,
-            hovermode='closest'
+            hovermode='closest',
+            xaxis={'visible': False},
+            yaxis={'visible': False}
         )
         return fig
     except Exception as e:
@@ -1052,9 +1102,25 @@ def update_table(sort_by, start_date, end_date, session_data):
         display_df = filtered_df.copy()
         
         # Garantir que as colunas numéricas sejam do tipo correto
-        for col in ['Visualizações', 'Curtidas', 'Comentários', 'Taxa de Engajamento']:
-            if col in display_df.columns:
-                display_df[col] = pd.to_numeric(display_df[col], errors='coerce').fillna(0)
+        numeric_columns = {
+            'visualizacoes': 'Visualizações',
+            'curtidas': 'Curtidas',
+            'comentarios': 'Comentários'
+        }
+        
+        for orig_col, display_col in numeric_columns.items():
+            if orig_col in display_df.columns:
+                display_df[orig_col] = pd.to_numeric(display_df[orig_col], errors='coerce').fillna(0)
+            elif display_col in display_df.columns:
+                display_df[display_col] = pd.to_numeric(display_df[display_col], errors='coerce').fillna(0)
+                
+        # Calcular taxa de engajamento
+        if all(col in display_df.columns for col in ['visualizacoes', 'curtidas', 'comentarios']):
+            display_df['Taxa de Engajamento'] = ((display_df['curtidas'] + display_df['comentarios']) / 
+                                               display_df['visualizacoes'] * 100).round(2)
+        elif all(col in display_df.columns for col in ['Visualizações', 'Curtidas', 'Comentários']):
+            display_df['Taxa de Engajamento'] = ((display_df['Curtidas'] + display_df['Comentários']) / 
+                                               display_df['Visualizações'] * 100).round(2)
         
         # Formatar a coluna de data para exibição
         if 'Data de Publicação' in display_df.columns:
@@ -1168,6 +1234,162 @@ def update_all_graphs(sort_by, start_date, end_date, session_data):
     Callback para atualizar todos os gráficos com base nos filtros selecionados
     """
     return update_graphs(sort_by, start_date, end_date, session_data)
+
+@app.callback(
+    Output("download-dataframe-csv", "data"),
+    [Input("btn-csv", "n_clicks")],
+    [State("sort-dropdown", "value"),
+     State("date-picker", "start_date"),
+     State("date-picker", "end_date"),
+     State('session-data', 'data')]
+)
+def download_csv(n_clicks, sort_by, start_date, end_date, session_data):
+    if n_clicks is None:
+        raise PreventUpdate
+    
+    try:
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
+        if filtered_df.empty:
+            raise PreventUpdate
+            
+        return dcc.send_data_frame(
+            filtered_df.to_csv,
+            "f1_highlights_data.csv",
+            index=False,
+            encoding='utf-8-sig'
+        )
+    except Exception as e:
+        logger.error(f"Erro ao gerar CSV: {e}")
+        raise PreventUpdate
+
+@app.callback(
+    Output("download-dataframe-excel", "data"),
+    [Input("btn-excel", "n_clicks")],
+    [State("sort-dropdown", "value"),
+     State("date-picker", "start_date"),
+     State("date-picker", "end_date"),
+     State('session-data', 'data')]
+)
+def download_excel(n_clicks, sort_by, start_date, end_date, session_data):
+    if n_clicks is None:
+        raise PreventUpdate
+
+    try:
+        filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
+        if filtered_df.empty:
+            logger.warning("Filtered data is empty for Excel download.")
+            raise PreventUpdate
+
+        logger.info(f"Filtered data for Excel download: {filtered_df.head()}")
+        return dcc.send_data_frame(
+            filtered_df.to_excel,
+            "f1_highlights_data.xlsx",
+            index=False,
+            sheet_name="F1 Highlights"
+        )
+    except Exception as e:
+        logger.error(f"Erro ao gerar Excel: {e}")
+        raise PreventUpdate
+
+@app.callback(
+    Output("metrics-animation", "figure"),
+    [Input("animation-interval", "n_intervals")],
+    [State('session-data', 'data')]
+)
+@cache.memoize(timeout=300)
+def update_metrics_animation(n_intervals, session_data):
+    if not session_data:
+        return empty_figure("Nenhum dado disponível")
+        
+    try:
+        df = pd.read_json(StringIO(session_data), orient='split')
+        df['Data de Publicação'] = pd.to_datetime(df['Data de Publicação'])
+        
+        # Ordenar por data
+        df = df.sort_values('Data de Publicação')
+        
+        # Criar figura com animação
+        fig = px.scatter(
+            df,
+            x='Visualizações',
+            y='Taxa de Engajamento',
+            animation_frame=df['Data de Publicação'].dt.strftime('%Y-%m-%d'),
+            size='Curtidas',
+            color='Temporada',
+            hover_name='Título',
+            range_x=[0, df['Visualizações'].max() * 1.1],
+            range_y=[0, df['Taxa de Engajamento'].max() * 1.1],
+            title='Evolução de Métricas ao Longo do Tempo',
+            labels={
+                'Visualizações': 'Total de Visualizações',
+                'Taxa de Engajamento': 'Taxa de Engajamento (%)'
+            }
+        )
+        
+        # Adicionar linha de tendência
+        fig.add_traces(
+            px.scatter(
+                df,
+                x='Visualizações',
+                y='Taxa de Engajamento',
+                trendline="ols"
+            ).data
+        )
+        
+        # Melhorar o layout da animação
+        fig.update_layout(
+            **GRAPH_LAYOUT_BASE,
+            updatemenus=[{
+                'type': 'buttons',
+                'showactive': False,
+                'buttons': [
+                    {'label': '▶️ Play',
+                     'method': 'animate',
+                     'args': [None, {'frame': {'duration': 1000, 'redraw': True}, 'fromcurrent': True}]},
+                    {'label': '⏸️ Pause',
+                     'method': 'animate',
+                     'args': [[None], {'frame': {'duration': 0, 'redraw': False}, 'mode': 'immediate'}]}
+                ],
+                'direction': 'left',
+                'pad': {'r': 10, 't': 10},
+                'x': 0.1,
+                'y': 1.1
+            }],
+            sliders=[{
+                'currentvalue': {'prefix': 'Data: '},
+                'pad': {'t': 50},
+                'len': 0.9,
+                'x': 0.1,
+                'y': 0,
+                'steps': [
+                    {
+                        'args': [[f.name], {
+                            'frame': {'duration': 0, 'redraw': False},
+                            'mode': 'immediate',
+                        }],
+                        'label': f.name,
+                        'method': 'animate'
+                    }
+                    for f in fig.frames
+                ]
+            }]
+        )
+        
+        return fig
+    except Exception as e:
+        logger.error(f"Erro ao gerar animação: {e}")
+        return empty_figure("Erro ao gerar animação")
+
+@app.callback(
+    [Output("animation-interval", "disabled"),
+     Output("animation-control", "children")],
+    [Input("animation-control", "n_clicks")],
+    [State("animation-interval", "disabled")]
+)
+def toggle_animation(n_clicks, current_state):
+    if n_clicks is None:
+        return True, "Play"
+    return not current_state, "Pause" if current_state else "Play"
 
 server = app.server  # Adicionar esta linha no fim do arquivo
 

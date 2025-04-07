@@ -1,4 +1,3 @@
-
 import os
 import logging
 from datetime import datetime, timedelta
@@ -6,6 +5,9 @@ from typing import List, Dict, Any
 import pandas as pd
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential
+from googleapiclient.errors import HttpError
+from ratelimit import limits, sleep_and_retry
 
 
 logging.basicConfig(
@@ -32,22 +34,40 @@ if not API_KEY or not PLAYLIST_ID:
     raise ValueError("YOUTUBE_API_KEY e PLAYLIST_ID devem ser configuradas no arquivo .env")
 
 class YouTubeAnalytics:
+    # Define rate limits: 10000 calls per day = ~7 calls per minute
+    CALLS = 7
+    RATE_PERIOD = 60  # 1 minute in seconds
 
+    @sleep_and_retry
+    @limits(calls=CALLS, period=RATE_PERIOD)
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _inicializar_servico(self) -> Any:
+        try:
+            service = build('youtube', 'v3', developerKey=API_KEY)
+            logger.info("Serviço do YouTube iniciado com sucesso.")
+            return service
+        except HttpError as e:
+            if e.resp.status == 403:
+                logger.error("Erro de autorização com a API do YouTube. Verifique sua chave API.")
+                raise
+            elif e.resp.status == 429:
+                logger.error("Limite de cota da API do YouTube atingido.")
+                raise
+            else:
+                logger.error(f"Erro HTTP ao iniciar serviço do YouTube: {e}")
+                raise
+        except Exception as e:
+            logger.error(f"Erro inesperado ao iniciar o serviço do YouTube: {e}")
+            raise
     
     def __init__(self):
         self.service = self._inicializar_servico()
         self.videos = []
         self.df = None
     
-    def _inicializar_servico(self) -> Any:
-        try:
-            service = build('youtube', 'v3', developerKey=API_KEY)
-            logger.info("Serviço do YouTube iniciado com sucesso.")
-            return service
-        except Exception as e:
-            logger.error("Erro ao iniciar o serviço do YouTube: %s", e)
-            raise
-    
+    @sleep_and_retry
+    @limits(calls=CALLS, period=RATE_PERIOD)
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def coletar_videos_playlist(self, playlist_id: str) -> List[Dict]:
         videos = []
         next_page_token = None
@@ -85,6 +105,13 @@ class YouTubeAnalytics:
                     logger.info("Não há mais páginas para coletar")
                     break
                     
+            except HttpError as e:
+                if e.resp.status in [403, 429]:
+                    logger.error(f"Erro de API ao coletar vídeos (status {e.resp.status})")
+                    raise
+                else:
+                    logger.error(f"Erro HTTP ao coletar vídeos: {e}")
+                    break
             except Exception as e:
                 logger.error(f"Erro ao obter vídeos da playlist: {str(e)}")
                 break
@@ -92,6 +119,9 @@ class YouTubeAnalytics:
         logger.info(f"Total de vídeos obtidos: {len(videos)}")
         return videos
     
+    @sleep_and_retry
+    @limits(calls=CALLS, period=RATE_PERIOD)
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def obter_detalhes_videos(self, video_ids: List[str]) -> List[Dict]:
         details = []
         logger.info(f"Iniciando coleta de detalhes para {len(video_ids)} vídeos")
@@ -114,6 +144,13 @@ class YouTubeAnalytics:
                 details.extend(response.get('items', []))
                 logger.info(f"Detalhes obtidos para {len(response.get('items', []))} vídeos do batch {i//50 + 1}")
                 
+            except HttpError as e:
+                if e.resp.status in [403, 429]:
+                    logger.error(f"Erro de API ao obter detalhes dos vídeos (status {e.resp.status})")
+                    raise
+                else:
+                    logger.error(f"Erro HTTP ao obter detalhes dos vídeos: {e}")
+                    continue
             except Exception as e:
                 logger.error(f"Erro ao obter detalhes dos vídeos do batch {i//50 + 1}: {str(e)}")
                 continue
