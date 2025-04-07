@@ -1,74 +1,106 @@
+:root {
+    --font-lexend: 'Lexend', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+    font-family: var(--font-lexend) !important;
+}
+
+/* Aplicar Lexend especificamente em elementos importantes */
+body,
+h1, h2, h3, h4, h5, h6,
+p,
+button,
+input,
+select,
+textarea,
+.dash-table-container,
+.dash-spreadsheet,
+.dash-dropdown,
+.dash-graph,
+.dash-debug-menu,
+.plotly-graph-div {
+    font-family: var(--font-lexend) !important;
+}
+
 .Select-control {
-    background-color: #2b3e50 !important;
-    border-color: #9b59b6 !important;
+    background-color: #FFFFFF !important;
+    border-color: #6E72FC !important;
 }
 
 .Select-menu-outer {
-    background-color: #2b3e50 !important;
-    border: 1px solid #9b59b6 !important;
+    background-color: #FFFFFF !important;
+    border: 1px solid #6E72FC !important;
 }
 
 .Select-option {
-    background-color: #2b3e50 !important;
-    color: #ecf0f1 !important;
+    background-color: #FFFFFF !important;
+    color: #1A202C !important;
 }
 
 .Select-option:hover {
-    background-color: #34495e !important;
+    background-color: #F7FAFC !important;
 }
 
 .Select-value-label {
-    color: #ecf0f1 !important;
+    color: #1A202C !important;
 }
 
 .Select.is-focused > .Select-control {
-    background-color: #2b3e50 !important;
+    background-color: #FFFFFF !important;
+    border-color: #6E72FC !important;
 }
 
 .Select-menu {
-    background-color: #2b3e50 !important;
+    background-color: #FFFFFF !important;
 }
 
 .Select-value {
-    background-color: #2b3e50 !important;
-    border-color: #9b59b6 !important;
+    background-color: #FFFFFF !important;
+    border-color: #E2E8F0 !important;
 }
 
 .Select input {
-    color: #ecf0f1 !important;
+    color: #1A202C !important;
 }
 
 .DateInput {
-    background-color: #2b3e50 !important;
+    background-color: #FFFFFF !important;
+    height: 38px !important;
 }
 
 .DateInput_input {
-    background-color: #2b3e50 !important;
-    color: #ecf0f1 !important;
-    border-color: #9b59b6 !important;
+    background-color: #FFFFFF !important;
+    color: #1A202C !important;
+    border-color: #E2E8F0 !important;
+    height: 38px !important;
+    line-height: 38px !important;
+    padding: 0 12px !important;
+    font-size: 14px !important;
 }
 
 .DateInput_input__focused {
-    background-color: #2b3e50 !important;
-    border-color: #9b59b6 !important;
+    background-color: #FFFFFF !important;
+    border-color: #6E72FC !important;
 }
 
 .CalendarMonth_table {
-    background-color: #2b3e50 !important;
+    background-color: #FFFFFF !important;
 }
 
 .CalendarDay {
-    background-color: #2b3e50 !important;
-    color: #ecf0f1 !important;
-    border: 1px solid #9b59b6 !important;
+    background-color: #FFFFFF !important;
+    color: #1A202C !important;
+    border: 1px solid #E2E8F0 !important;
 }
 
 .CalendarDay:hover {
-    background-color: #34495e !important;
+    background-color: #F7FAFC !important;
 }
 
 .CalendarDay__selected {
-    background-color: #9b59b6 !important;
+    background-color: #6E72FC !important;
+    color: #FFFFFF !important;
 }
 
 .DayPickerKeyboardShortcuts_show__bottomRight {
@@ -76,34 +108,108 @@
 }
 
 .DateRangePicker_picker {
-    background-color: #2b3e50 !important;
+    background-color: #FFFFFF !important;
 }
 
 .DayPicker {
-    background-color: #2b3e50 !important;
+    background-color: #FFFFFF !important;
 }
 
 .DayPicker_weekHeader {
-    color: #ecf0f1 !important;
+    color: #1A202C !important;
 }
 
 .CalendarMonth_caption {
-    color: #ecf0f1 !important;
+    color: #1A202C !important;
 }
 
 .Select-input > input {
-    color: #ecf0f1 !important;
+    color: #1A202C !important;
 }
 
 .Select-placeholder {
-    color: #95a5a6 !important;
+    color: #718096 !important;
 }
 
 .Select-arrow {
-    border-color: #9b59b6 transparent transparent !important;
+    border-color: #6E72FC transparent transparent !important;
 }
 
 .is-open > .Select-control {
-    background-color: #2b3e50 !important;
-    border-color: #9b59b6 !important;
-} 
+    background-color: #FFFFFF !important;
+    border-color: #6E72FC !important;
+}
+
+.card-title {
+    color: #6E72FC !important;
+}
+
+.text-primary {
+    color: #6E72FC !important;
+}
+
+.metric-card {
+    color: #6E72FC !important;
+    border-color: #6E72FC !important;
+}
+
+.table thead th {
+    color: #6E72FC !important;
+}
+
+.custom-card:hover {
+    border-color: #6E72FC !important;
+}
+
+.custom-dropdown .Select-control {
+    border-radius: 8px !important;
+    border: 1px solid #E2E8F0 !important;
+    background-color: #F8FAFC !important;
+    box-shadow: none !important;
+    height: 38px !important;
+    line-height: 38px !important;
+}
+
+.custom-dropdown .Select-value-label {
+    color: #2D3748 !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+}
+
+.custom-datepicker .DateInput {
+    border-radius: 8px !important;
+    background-color: #F8FAFC !important;
+    height: 38px !important;
+}
+
+.custom-datepicker .DateInput_input {
+    font-size: 14px !important;
+    color: #2D3748 !important;
+    font-weight: 500 !important;
+    padding: 7px 12px !important;
+    background-color: transparent !important;
+}
+
+.custom-datepicker .DateRangePickerInput {
+    border-radius: 8px !important;
+    border: 1px solid #E2E8F0 !important;
+    background-color: #F8FAFC !important;
+    height: 38px !important;
+}
+
+.custom-datepicker .DateRangePickerInput_arrow {
+    color: #2D3748 !important;
+}
+
+/* Hover states */
+.custom-dropdown .Select-control:hover,
+.custom-datepicker .DateRangePickerInput:hover {
+    border-color: #CBD5E0 !important;
+}
+
+/* Focus states */
+.custom-dropdown .is-focused:not(.is-open) > .Select-control,
+.custom-datepicker .DateInput_input:focus {
+    border-color: #4299E1 !important;
+    box-shadow: 0 0 0 1px #4299E1 !important;
+}

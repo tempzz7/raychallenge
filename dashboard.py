@@ -27,13 +27,50 @@ load_dotenv()
 
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.DARKLY],
+    external_stylesheets=[dbc.themes.FLATLY],
     meta_tags=[
-        {'name': 'viewport', 'content': 'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0'}
+        {'name': 'viewport', 'content': 'width=device-width, maximum-scale=1.0, minimum-scale=1.0'}
     ],
     assets_folder='assets',
-    suppress_callback_exceptions=True  # Importante para callbacks condicionais
+    suppress_callback_exceptions=True
 )
+
+# Estilos base para componentes
+DROPDOWN_STYLE = {
+    'borderRadius': '8px',
+    'border': '1px solid #E2E8F0',
+    'backgroundColor': '#F8FAFC',
+    'color': '#2D3748',
+    'fontSize': '14px',
+    'fontWeight': '500',
+    'fontFamily': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important',
+    'height': '38px'
+}
+
+DATE_PICKER_STYLE = {
+    'zIndex': '1000',
+    'fontFamily': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important',
+    'fontSize': '14px',
+    'backgroundColor': '#FFFFFF',
+    'border': '1px solid #E2E8F0',
+    'borderRadius': '8px',
+    'boxShadow': 'none'
+}
+
+# Layout base para gráficos
+GRAPH_LAYOUT_BASE = {
+    'template': 'plotly',
+    'plot_bgcolor': 'rgba(249,250,251,0)',
+    'paper_bgcolor': 'rgba(255,255,255,0)',
+    'font': {
+        'family': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        'color': '#1A202C'
+    },
+    'showlegend': True,
+    'margin': dict(t=30, l=10, r=10, b=10),
+    'autosize': True,
+    'hovermode': 'closest'
+}
 
 min_date = pd.to_datetime('2023-01-01', utc=True)
 max_date = pd.to_datetime('now', utc=True)
@@ -62,9 +99,9 @@ def truncate_title(title, max_length=40):
 def safe_engagement_rate(row):
     try:
         # Garantir que os valores são numéricos
-        visualizacoes = float(row['visualizacoes'])
-        curtidas = float(row['curtidas'])
-        comentarios = float(row['comentarios'])
+        visualizacoes = float(row['Visualizações'])
+        curtidas = float(row['Curtidas'])
+        comentarios = float(row['Comentários'])
         
         # Evitar divisão por zero
         if visualizacoes == 0:
@@ -89,70 +126,81 @@ def load_data():
         # Carregar o CSV
         df = pd.read_csv(csv_path, encoding='utf-8', on_bad_lines='skip')
         
+        # Renomear colunas para nomes mais amigáveis
+        column_mapping = {
+            'video_id': 'ID do Vídeo',
+            'titulo': 'Título',
+            'data_publicacao': 'Data de Publicação',
+            'visualizacoes': 'Visualizações',
+            'curtidas': 'Curtidas',
+            'comentarios': 'Comentários',
+            'duracao': 'Duração',
+            'thumbnail': 'Thumbnail',
+            'descricao': 'Descrição',
+            'tags': 'Tags',
+            'canal': 'Canal',
+            'taxa_engajamento': 'Taxa de Engajamento',
+            'media_visualizacoes_diarias': 'Média de Visualizações Diárias',
+            'dias_desde_publicacao': 'Dias Desde Publicação',
+            'proporcao_curtidas_visualizacoes': 'Proporção Curtidas/Visualizações',
+            'proporcao_comentarios_visualizacoes': 'Proporção Comentários/Visualizações',
+            'temporada': 'Temporada'
+        }
+        
+        df = df.rename(columns=column_mapping)
+        
         # Converter a coluna de data
-        # Verificar tamanho do arquivo
         file_size = os.path.getsize(csv_path)
         logger.info(f"Tamanho do arquivo: {file_size} bytes")
-        
-        # Carregar dados com tratamento de erros
-        df = pd.read_csv(csv_path, encoding='utf-8', on_bad_lines='skip')
-        logger.info(f"Arquivo CSV carregado com sucesso. Formato: {df.shape}")
 
-        # Converter coluna de data com tratamento de erro
         try:
-            df['data_publicacao'] = pd.to_datetime(df['data_publicacao'], errors='coerce', utc=True)
+            df['Data de Publicação'] = pd.to_datetime(df['Data de Publicação'], errors='coerce', utc=True)
             logger.info("Coluna de data convertida com sucesso")
             
-            # Verificando se a conversão foi bem sucedida
-            if df['data_publicacao'].isna().any():
-                logger.warning(f"Existem {df['data_publicacao'].isna().sum()} valores de data que não puderam ser convertidos")
-                # Remover linhas com datas inválidas
-                df = df.dropna(subset=['data_publicacao'])
+            if df['Data de Publicação'].isna().any():
+                logger.warning(f"Existem {df['Data de Publicação'].isna().sum()} valores de data que não puderam ser convertidos")
+                df = df.dropna(subset=['Data de Publicação'])
         except Exception as e:
             logger.error(f"Erro ao converter datas: {e}")
             raise
         
-        # Verificar se não há linhas vazias
         if df.empty:
             logger.error("DataFrame está vazio após carregamento!")
             raise ValueError("DataFrame está vazio após carregamento")
-        
+            
         logger.info(f"DataFrame carregado com {len(df)} linhas e {len(df.columns)} colunas")
         logger.info(f"Colunas disponíveis: {df.columns.tolist()}")
         
-        # Calcular métricas adicionais com tratamento de erro
-        logger.info("Calculando métricas adicionais...")
-        
         try:
             # Taxa de engajamento
-            df['taxa_engajamento'] = df.apply(safe_engagement_rate, axis=1)
+            df['Taxa de Engajamento'] = df.apply(safe_engagement_rate, axis=1)
             
             # Média diária de visualizações
             hoje = pd.Timestamp.now(tz='UTC')
-            df['dias_desde_publicacao'] = (hoje - df['data_publicacao']).dt.days
-            df['dias_desde_publicacao'] = np.where(
-                df['dias_desde_publicacao'] < 1,
+            df['Dias Desde Publicação'] = (hoje - df['Data de Publicação']).dt.days
+            df['Dias Desde Publicação'] = np.where(
+                df['Dias Desde Publicação'] < 1,
                 1,
-                df['dias_desde_publicacao']
+                df['Dias Desde Publicação']
             )
-            df['media_visualizacoes_diarias'] = (df['visualizacoes'] / df['dias_desde_publicacao']).round(0)
+            df['Média de Visualizações Diárias'] = (df['Visualizações'] / df['Dias Desde Publicação']).round(0)
             
             # Outras métricas
-            df['proporcao_curtidas_visualizacoes'] = np.where(
-                df['visualizacoes'] > 0,
-                (df['curtidas'] / df['visualizacoes'] * 100).round(2),
+            df['Proporção Curtidas/Visualizações'] = np.where(
+                df['Visualizações'] > 0,
+                (df['Curtidas'] / df['Visualizações'] * 100).round(2),
                 0
             )
-            df['proporcao_comentarios_visualizacoes'] = np.where(
-                df['visualizacoes'] > 0,
-                (df['comentarios'] / df['visualizacoes'] * 100).round(2),
+            df['Proporção Comentários/Visualizações'] = np.where(
+                df['Visualizações'] > 0,
+                (df['Comentários'] / df['Visualizações'] * 100).round(2),
                 0
             )
             
             # Extrair temporada do título
-            df['temporada'] = df['titulo'].str.extract(r'(\d{4})')
-            df['temporada'] = df['temporada'].fillna(df['data_publicacao'].dt.year.astype(str))
-            df['temporada'] = df['temporada'].where(df['temporada'].isin(['2023', '2024']), '2024')
+            df['Temporada'] = df['Título'].str.extract(r'(\d{4})')
+            df['Temporada'] = df['Temporada'].fillna(df['Data de Publicação'].dt.year.astype(str))
+            df['Temporada'] = df['Temporada'].where(df['Temporada'].isin(['2023', '2024']), '2024')
             
             logger.info("Métricas calculadas com sucesso")
             return df
@@ -181,13 +229,13 @@ def apply_filters(df_json, start_date, end_date, sort_by, sort_order):
         if isinstance(end_date, str):
             end_date = pd.to_datetime(end_date, utc=True)
             
-        # Garantir que a coluna data_publicacao é datetime
-        if not pd.api.types.is_datetime64_any_dtype(df['data_publicacao']):
-            df['data_publicacao'] = pd.to_datetime(df['data_publicacao'], utc=True)
+        # Garantir que a coluna Data de Publicação é datetime
+        if not pd.api.types.is_datetime64_any_dtype(df['Data de Publicação']):
+            df['Data de Publicação'] = pd.to_datetime(df['Data de Publicação'], utc=True)
             
         # Aplicar filtros de data
-        df = df[(df['data_publicacao'] >= start_date) & 
-                (df['data_publicacao'] <= end_date)]
+        df = df[(df['Data de Publicação'] >= start_date) & 
+                (df['Data de Publicação'] <= end_date)]
                 
         # Aplicar ordenação
         if sort_by and sort_order:
@@ -197,7 +245,7 @@ def apply_filters(df_json, start_date, end_date, sort_by, sort_order):
             # Verificar se a coluna de ordenação existe
             if sort_column in df.columns:
                 # Garantir que a coluna é numérica se necessário
-                if sort_column in ['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento']:
+                if sort_column in ['Visualizações', 'Curtidas', 'Comentários', 'Taxa de Engajamento']:
                     df[sort_column] = pd.to_numeric(df[sort_column], errors='coerce').fillna(0)
                 # Aplicar ordenação
                 df = df.sort_values(by=sort_column, ascending=(sort_order == 'asc'))
@@ -209,8 +257,54 @@ def apply_filters(df_json, start_date, end_date, sort_by, sort_order):
         logger.error(f"Erro ao aplicar filtros: {str(e)}")
         return pd.DataFrame()
 
+# Combined callback for data initialization and periodic updates
+@app.callback(
+    Output('session-data', 'data'),
+    [Input('session-data', 'modified_timestamp'),
+     Input('interval-component', 'n_intervals')],
+    [State('session-data', 'data')]
+)
+def combined_data_callback(ts, n_intervals, data):
+    """Handles both initialization and periodic updates of data"""
+    try:
+        # Use callback context to determine which input triggered the callback
+        ctx = dash.callback_context
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+        
+        # For initialization (session-data modified_timestamp)
+        if trigger_id == 'session-data' and data is None:
+            # Initial load
+            initial_df = load_data()
+            if initial_df is not None and not initial_df.empty:
+                logger.info(f"Dados iniciais carregados com sucesso: {len(initial_df)} registros")
+                return initial_df.to_json(date_format='iso', orient='split')
+            else:
+                logger.error("Falha ao carregar dados iniciais")
+                return None
+                
+        # For periodic updates (interval-component)
+        elif trigger_id == 'interval-component':
+            # Load updated data
+            updated_df = load_data()
+            if updated_df is not None and not updated_df.empty:
+                logger.info(f"Dados atualizados com sucesso: {len(updated_df)} registros")
+                return updated_df.to_json(date_format='iso', orient='split')
+        
+        # If no trigger matched or update wasn't needed, return current data
+        return data
+    except Exception as e:
+        logger.error(f"Erro ao processar dados: {e}", exc_info=True)
+        return data
+
 # Layout do aplicativo com armazenamento de dados por sessão
 app.layout = dbc.Container([
+    # Intervalo para atualização automática (a cada 30 segundos)
+    dcc.Interval(
+        id='interval-component',
+        interval=30*1000,  # em milissegundos
+        n_intervals=0
+    ),
+    
     # Armazenamento de dados por sessão
     dcc.Store(id='session-data', storage_type='session'),
     
@@ -221,9 +315,9 @@ app.layout = dbc.Container([
                 "A F1 em 2024: O que Encanta os Fãs no YouTube",
                 className="text-center mb-2",
                 style={
-                    'color': '#9b59b6',
+                    'color': '#6E72FC',  # Cor primária do tema
                     'fontWeight': 'bold',
-                    'textShadow': '2px 2px 4px rgba(0,0,0,0.5)',
+                    'textShadow': '2px 2px 4px rgba(110, 114, 252, 0.2)',
                     'fontSize': {'sm': '24px', 'md': '32px', 'lg': '36px', 'xl': '40px'}
                 }
             ),
@@ -232,7 +326,7 @@ app.layout = dbc.Container([
                 className="text-center mb-3 text-muted",
                 style={'fontSize': {'sm': '16px', 'md': '18px', 'lg': '20px'}}
             ),
-            html.Hr(style={'borderColor': '#9b59b6'})
+            html.Hr(style={'borderColor': '#6E72FC'})
         ], xs=12)
     ]),
     
@@ -244,23 +338,23 @@ app.layout = dbc.Container([
                     html.H5("Destaques da Temporada", className="card-title text-primary"),
                     dbc.Row([
                         dbc.Col([
-                            html.H6("Corrida Mais Popular", className="text-light text-center"),
-                            html.H4(id="top-race", className="text-primary text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}}),
+                            html.H6("Corrida Mais Popular", className="text-dark text-center"),
+                            html.H4(id="top-race", className="text-dark text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}, 'color': '#2c3e50'}),
                             html.P(id="top-race-views", className="text-muted text-center")
                         ], xs=12, sm=12, md=4),
                         dbc.Col([
-                            html.H6("Maior Engajamento", className="text-light text-center"),
-                            html.H4(id="top-engagement", className="text-primary text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}}),
+                            html.H6("Maior Engajamento", className="text-dark text-center"),
+                            html.H4(id="top-engagement", className="text-dark text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}, 'color': '#2c3e50'}),
                             html.P(id="top-engagement-percent", className="text-muted text-center")
                         ], xs=12, sm=12, md=4),
                         dbc.Col([
-                            html.H6("Piloto em Destaque", className="text-light text-center"),
-                            html.H4(id="top-driver", className="text-primary text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}}),
+                            html.H6("Piloto em Destaque", className="text-dark text-center"),
+                            html.H4(id="top-driver", className="text-dark text-center", style={'fontSize': {'sm': '16px', 'md': '20px'}, 'color': '#2c3e50'}),
                             html.P(id="top-driver-mentions", className="text-muted text-center")
                         ], xs=12, sm=12, md=4)
                     ])
                 ])
-            ], className="mb-4", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-4", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12)
     ]),
     
@@ -269,55 +363,52 @@ app.layout = dbc.Container([
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
-                    html.H5("Filtros e Ordenação", className="card-title text-primary"),
+                    html.H5("Filtros e Ordenação", className="card-title text-primary", style={'fontFamily': 'Lexend, sans-serif'}),
                     dbc.Row([
                         dbc.Col([
-                            html.Label("Ordenar por:", className="text-light"),
+                            html.Label("Ordenar por:", className="text-dark fw-bold mb-2", style={'fontFamily': 'Lexend, sans-serif'}),
                             dcc.Dropdown(
                                 id='sort-dropdown',
                                 options=[
-                                    {'label': 'Data de Publicação (Mais Recente)', 'value': 'data_publicacao_desc'},
-                                    {'label': 'Data de Publicação (Mais Antiga)', 'value': 'data_publicacao_asc'},
-                                    {'label': 'Visualizações (Maior)', 'value': 'visualizacoes_desc'},
-                                    {'label': 'Visualizações (Menor)', 'value': 'visualizacoes_asc'},
-                                    {'label': 'Curtidas (Maior)', 'value': 'curtidas_desc'},
-                                    {'label': 'Curtidas (Menor)', 'value': 'curtidas_asc'},
-                                    {'label': 'Comentários (Maior)', 'value': 'comentarios_desc'},
-                                    {'label': 'Comentários (Menor)', 'value': 'comentarios_asc'},
-                                    {'label': 'Taxa de Engajamento (Maior)', 'value': 'taxa_engajamento_desc'},
-                                    {'label': 'Taxa de Engajamento (Menor)', 'value': 'taxa_engajamento_asc'}
+                                    {'label': 'Data de Publicação (Mais Recente)', 'value': 'Data de Publicação_desc'},
+                                    {'label': 'Data de Publicação (Mais Antiga)', 'value': 'Data de Publicação_asc'},
+                                    {'label': 'Visualizações (Maior)', 'value': 'Visualizações_desc'},
+                                    {'label': 'Visualizações (Menor)', 'value': 'Visualizações_asc'},
+                                    {'label': 'Curtidas (Maior)', 'value': 'Curtidas_desc'},
+                                    {'label': 'Curtidas (Menor)', 'value': 'Curtidas_asc'},
+                                    {'label': 'Comentários (Maior)', 'value': 'Comentários_desc'},
+                                    {'label': 'Comentários (Menor)', 'value': 'Comentários_asc'},
+                                    {'label': 'Taxa de Engajamento (Maior)', 'value': 'Taxa de Engajamento_desc'},
+                                    {'label': 'Taxa de Engajamento (Menor)', 'value': 'Taxa de Engajamento_asc'}
                                 ],
-                                value='data_publicacao_desc',
-                                className='custom-dropdown mb-3',
-                                style={
-                                    'backgroundColor': '#2b3e50',
-                                    'color': '#ecf0f1',
-                                    'border': '1px solid #9b59b6'
-                                }
+                                value='Data de Publicação_desc',
+                                className='custom-dropdown',
+                                style=DROPDOWN_STYLE
                             )
-                        ], xs=12, md=6),
+                        ], xs=12, md=6, className='mb-3'),
                         dbc.Col([
-                            html.Label("Período:", className="text-light"),
+                            html.Label("Período:", className="text-dark fw-bold mb-2", style={'fontFamily': 'Lexend, sans-serif'}),
                             dcc.DatePickerRange(
                                 id='date-picker',
                                 start_date=min_date,
                                 end_date=max_date,
                                 display_format='DD/MM/YYYY',
-                                className='custom-datepicker',
+                                className='custom-datepicker w-100',
                                 min_date_allowed=min_date,
                                 max_date_allowed=max_date,
                                 initial_visible_month=max_date,
-                                style={
-                                    'backgroundColor': '#2b3e50',
-                                    'color': '#ecf0f1',
-                                    'border': '1px solid #9b59b6',
-                                    'width': '100%'
-                                }
+                                style=DATE_PICKER_STYLE,
+                                start_date_placeholder_text='Data Inicial',
+                                end_date_placeholder_text='Data Final',
+                                calendar_orientation='horizontal',
+                                clearable=True,
+                                with_portal=True,
+                                updatemode='bothdates'
                             )
-                        ], xs=12, md=6)
-                    ])
+                        ], xs=12, md=6, className='mb-3')
+                    ], className='g-3')
                 ])
-            ], className="mb-4", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-4", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12)
     ]),
     
@@ -327,9 +418,9 @@ app.layout = dbc.Container([
             dbc.Card([
                 dbc.CardBody([
                     html.H5("Insights da Temporada", className="card-title text-primary"),
-                    html.Div(id="insight-text", className="text-light")
+                    html.Div(id="insight-text", className="text-dark")
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ])
     ]),
     
@@ -342,7 +433,7 @@ app.layout = dbc.Container([
                     html.H3(id="total-videos", className="text-primary"),
                     html.P("Vídeos coletados", className="text-muted")
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, sm=6, md=3),
         dbc.Col([
             dbc.Card([
@@ -351,7 +442,7 @@ app.layout = dbc.Container([
                     html.H3(id="total-views", className="text-primary"),
                     html.P("Visualizações totais", className="text-muted")
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, sm=6, md=3),
         dbc.Col([
             dbc.Card([
@@ -360,7 +451,7 @@ app.layout = dbc.Container([
                     html.H3(id="total-likes", className="text-primary"),
                     html.P("Curtidas totais", className="text-muted")
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, sm=6, md=3),
         dbc.Col([
             dbc.Card([
@@ -369,7 +460,7 @@ app.layout = dbc.Container([
                     html.H3(id="avg-engagement", className="text-primary"),
                     html.P("Curtidas + Comentários / Views", className="text-muted")
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, sm=6, md=3)
     ]),
     
@@ -386,7 +477,7 @@ app.layout = dbc.Container([
                         style={'height': '400px', 'marginBottom': '20px'}  # Altura ajustada
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, md=6),
         dbc.Col([
             dbc.Card([
@@ -399,7 +490,7 @@ app.layout = dbc.Container([
                         style={'height': '400px'}  # Altura ajustada
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, md=6)
     ]),
     
@@ -415,7 +506,7 @@ app.layout = dbc.Container([
                         style={'height': '400px'}  # Altura ajustada
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, md=6),
         dbc.Col([
             dbc.Card([
@@ -428,7 +519,7 @@ app.layout = dbc.Container([
                         style={'height': '400px'}  # Altura ajustada
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, md=6)
     ]),
     
@@ -444,7 +535,7 @@ app.layout = dbc.Container([
                         style={'height': '400px'}  # Altura ajustada
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, md=6),
         dbc.Col([
             dbc.Card([
@@ -457,7 +548,7 @@ app.layout = dbc.Container([
                         style={'height': '400px'}  # Altura ajustada
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12, md=6)
     ]),
     
@@ -474,7 +565,7 @@ app.layout = dbc.Container([
                         style={'height': {'xs': '400px', 'md': '300px'}}
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12)
     ]),
     
@@ -490,33 +581,10 @@ app.layout = dbc.Container([
                         style={'overflowX': 'auto'}
                     )
                 ])
-            ], className="mb-3", style={'backgroundColor': '#2b3e50', 'border': '1px solid #9b59b6'})
+            ], className="mb-3", style={'backgroundColor': '#FFFFFF', 'border': '1px solid #E2E8F0'})
         ], xs=12)
     ])
 ], fluid=True, className="p-3", style={'maxWidth': '1400px', 'margin': '0 auto'})
-
-# Inicializar o armazenamento de dados de sessão
-@app.callback(
-    Output('session-data', 'data'),
-    [Input('session-data', 'modified_timestamp')],
-    [State('session-data', 'data')]
-)
-def initialize_session_data(ts, data):
-    try:
-        if data is None:
-            # Carregar dados iniciais
-            initial_df = load_data()
-            if initial_df is not None and not initial_df.empty:
-                logger.info(f"Dados iniciais carregados com sucesso: {len(initial_df)} registros")
-                # Serializar DataFrame para JSON
-                return initial_df.to_json(date_format='iso', orient='split')
-            else:
-                logger.error("Falha ao carregar dados iniciais")
-                return None
-        return data
-    except Exception as e:
-        logger.error(f"Erro ao inicializar dados da sessão: {e}", exc_info=True)
-        return None
 
 # Adicionar callback para atualizar a interface assim que os dados forem carregados
 @app.callback(
@@ -529,7 +597,7 @@ def initialize_interface(session_data):
     try:
         if session_data:
             # Definir valores iniciais para os filtros
-            return 'data_publicacao_desc', min_date, max_date
+            return 'Data de Publicação_desc', min_date, max_date
         return None, None, None
     except Exception as e:
         logger.error(f"Erro ao inicializar interface: {e}", exc_info=True)
@@ -560,16 +628,16 @@ def update_highlights(sort_by, start_date, end_date, session_data):
             return "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
         
         # Encontrar o vídeo mais popular
-        top_video_idx = filtered_df['visualizacoes'].idxmax()
+        top_video_idx = filtered_df['Visualizações'].idxmax()
         top_video = filtered_df.loc[top_video_idx]
-        top_race_name = top_video['titulo'].split('|')[0].strip() if '|' in top_video['titulo'] else top_video['titulo']
+        top_race_name = top_video['Título'].split('|')[0].strip() if '|' in top_video['Título'] else top_video['Título']
         if len(top_race_name) > 25:
             top_race_name = top_race_name[:22] + "..."
         
         # Encontrar o vídeo com maior engajamento
-        top_eng_idx = filtered_df['taxa_engajamento'].idxmax()
+        top_eng_idx = filtered_df['Taxa de Engajamento'].idxmax()
         top_eng_video = filtered_df.loc[top_eng_idx]
-        top_eng_name = top_eng_video['titulo'].split('|')[0].strip() if '|' in top_eng_video['titulo'] else top_eng_video['titulo']
+        top_eng_name = top_eng_video['Título'].split('|')[0].strip() if '|' in top_eng_video['Título'] else top_eng_video['Título']
         if len(top_eng_name) > 25:
             top_eng_name = top_eng_name[:22] + "..."
         
@@ -585,9 +653,9 @@ def update_highlights(sort_by, start_date, end_date, session_data):
         
         return (
             top_race_name,
-            f"{top_video['visualizacoes']:,} visualizações",
+            f"{top_video['Visualizações']:,} visualizações",
             top_eng_name,
-            f"Taxa de {top_eng_video['taxa_engajamento']:.2f}%",
+            f"Taxa de {top_eng_video['Taxa de Engajamento']:.2f}%",
             piloto_mais_mencionado,
             f"Mencionado em {qtd_mencoes} vídeos"
         )
@@ -615,8 +683,8 @@ def update_insights(sort_by, start_date, end_date, session_data):
             return "Nenhum dado disponível para o período selecionado."
         
         # Gerar insights baseados nos dados
-        total_views = filtered_df['visualizacoes'].sum()
-        avg_engagement = filtered_df['taxa_engajamento'].mean()
+        total_views = filtered_df['Visualizações'].sum()
+        avg_engagement = filtered_df['Taxa de Engajamento'].mean()
         most_engaging_country = "Europa" if filtered_df.empty else "Mônaco"  # Exemplo
         days_with_most_views = "finais de semana" if filtered_df.empty else "segunda-feira"  # Exemplo
         
@@ -674,17 +742,17 @@ def update_graph_insights(sort_by, start_date, end_date, session_data):
             return ["Nenhum dado disponível para o período selecionado."] * 7
         
         # Gerar insights baseados nos dados filtrados
-        views_insight = f"Os picos de visualizações coincidem com as corridas mais disputadas da temporada. Máximo: {filtered_df['visualizacoes'].max():,} visualizações."
+        views_insight = f"Os picos de visualizações coincidem com as corridas mais disputadas da temporada. Máximo: {filtered_df['Visualizações'].max():,} visualizações."
         
-        engagement_insight = f"Corridas com incidentes ou ultrapassagens polêmicas tendem a gerar mais comentários. Média: {filtered_df['comentarios'].mean():.0f} comentários por vídeo."
+        engagement_insight = f"Corridas com incidentes ou ultrapassagens polêmicas tendem a gerar mais comentários. Média: {filtered_df['Comentários'].mean():.0f} comentários por vídeo."
         
-        top_videos_insight = f"Os GPs europeus dominam o top 10 de vídeos mais assistidos da temporada. Taxa média de engajamento: {filtered_df['taxa_engajamento'].mean():.2f}%."
+        top_videos_insight = f"Os GPs europeus dominam o top 10 de vídeos mais assistidos da temporada. Taxa média de engajamento: {filtered_df['Taxa de Engajamento'].mean():.2f}%."
         
         correlation_insight = "Existe forte correlação entre curtidas e comentários, mas visualizações nem sempre se traduzem em engajamento."
         
-        distribution_insight = f"Vídeos com alta taxa de engajamento tendem a ter compartilhamento viral nas redes sociais. Média de curtidas: {filtered_df['curtidas'].mean():.0f}."
+        distribution_insight = f"Vídeos com alta taxa de engajamento tendem a ter compartilhamento viral nas redes sociais. Média de curtidas: {filtered_df['Curtidas'].mean():.0f}."
         
-        growth_insight = f"Vídeos de corridas recentes têm crescimento mais acelerado nas primeiras 48h após publicação. Média diária: {filtered_df['media_visualizacoes_diarias'].mean():.0f} visualizações."
+        growth_insight = f"Vídeos de corridas recentes têm crescimento mais acelerado nas primeiras 48h após publicação. Média diária: {filtered_df['Média de Visualizações Diárias'].mean():.0f} visualizações."
         
         seasons_insight = "A temporada 2024 está gerando 23% mais engajamento por vídeo comparada à temporada 2023."
         
@@ -716,18 +784,18 @@ def update_metrics(sort_by, start_date, end_date, session_data):
             return "0", "0", "0", "0%"
         
         # Garantir que as colunas numéricas sejam do tipo correto
-        for col in ['visualizacoes', 'curtidas', 'comentarios']:
+        for col in ['Visualizações', 'Curtidas', 'Comentários']:
             if col in filtered_df.columns:
                 filtered_df[col] = pd.to_numeric(filtered_df[col], errors='coerce').fillna(0)
         
         # Calcular métricas
         total_videos = len(filtered_df)
-        total_views = filtered_df['visualizacoes'].sum()
-        total_likes = filtered_df['curtidas'].sum()
+        total_views = filtered_df['Visualizações'].sum()
+        total_likes = filtered_df['Curtidas'].sum()
         
         # Calcular a taxa de engajamento
-        total_engagement = filtered_df['curtidas'] + filtered_df['comentarios']
-        total_views_non_zero = filtered_df['visualizacoes'].replace(0, 1)
+        total_engagement = filtered_df['Curtidas'] + filtered_df['Comentários']
+        total_views_non_zero = filtered_df['Visualizações'].replace(0, 1)
         avg_engagement = (total_engagement / total_views_non_zero * 100).mean()
         
         logger.info(f"Métricas calculadas: {total_videos} vídeos, {total_views} visualizações, {total_likes} curtidas, {avg_engagement:.2f}% engajamento")
@@ -742,19 +810,6 @@ def update_metrics(sort_by, start_date, end_date, session_data):
         logger.error(f"Erro ao calcular métricas: {e}", exc_info=True)
         return "0", "0", "0", "0%"
 
-@app.callback(
-    [Output("views-time-graph", "figure"),
-     Output("engagement-time-graph", "figure"),
-     Output("top-videos-graph", "figure"),
-     Output("correlation-graph", "figure"),
-     Output("engagement-distribution", "figure"),
-     Output("daily-growth-rate", "figure"),
-     Output("seasons-comparison", "figure")],
-    [Input("sort-dropdown", "value"),
-     Input("date-picker", "start_date"),
-     Input("date-picker", "end_date")],
-    [State('session-data', 'data')]
-)
 def update_graphs(sort_by, start_date, end_date, session_data):
     try:
         if not session_data:
@@ -764,89 +819,81 @@ def update_graphs(sort_by, start_date, end_date, session_data):
         filtered_df = apply_filters(session_data, start_date, end_date, sort_by, 'asc')
         
         if filtered_df.empty:
-            # Retornar gráficos vazios com mensagem
             empty_fig = go.Figure()
             empty_fig.update_layout(
                 annotations=[dict(
                     text="Nenhum dado disponível para o período selecionado",
                     xref="paper", yref="paper",
-                    x=0.5, y=0.5, showarrow=False
-                )]
+                    x=0.5, y=0.5, showarrow=False,
+                    font=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
+                )],
+                **GRAPH_LAYOUT_BASE
             )
             return [empty_fig for _ in range(7)]
         
         # Garantir que as colunas numéricas sejam do tipo correto
-        for col in ['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento', 'media_visualizacoes_diarias']:
+        for col in ['Visualizações', 'Curtidas', 'Comentários', 'Taxa de Engajamento', 'Média de Visualizações Diárias']:
             if col in filtered_df.columns:
                 filtered_df[col] = pd.to_numeric(filtered_df[col], errors='coerce').fillna(0)
         
-        # Layout base para todos os gráficos
-        layout_base = dict(
-            template='plotly_dark',
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font_color='white',
-            showlegend=True,
-            margin=dict(t=30, l=10, r=10, b=10),
-            autosize=True,
-            hovermode='closest'
-        )
-        
         # 1. Gráfico de visualizações
-        time_series_df = filtered_df.copy().sort_values('data_publicacao')
+        time_series_df = filtered_df.copy().sort_values('Data de Publicação')
         fig_views = px.line(
             time_series_df,
-            x='data_publicacao',
-            y='visualizacoes',
+            x='Data de Publicação',
+            y='Visualizações',
             title='Visualizações ao Longo do Tempo'
         )
-        fig_views.update_layout(layout_base)
+        fig_views.update_layout(**GRAPH_LAYOUT_BASE)
+        fig_views.update_traces(line_color='#4299E1')
         
         # 2. Gráfico de engajamento
         fig_engagement = px.line(
             time_series_df,
-            x='data_publicacao',
-            y=['curtidas', 'comentarios'],
+            x='Data de Publicação',
+            y=['Curtidas', 'Comentários'],
             title='Engajamento ao Longo do Tempo'
         )
-        fig_engagement.update_layout(layout_base)
+        fig_engagement.update_layout(**GRAPH_LAYOUT_BASE)
+        fig_engagement.update_traces(selector={'name': 'Curtidas'}, line_color='#ED8936')
+        fig_engagement.update_traces(selector={'name': 'Comentários'}, line_color='#9F7AEA')
         
         # 3. Top vídeos
-        top_df = filtered_df.nlargest(10, 'visualizacoes')
+        top_df = filtered_df.nlargest(10, 'Visualizações')
         fig_top = px.bar(
             top_df,
-            x='visualizacoes',
-            y='titulo',
+            x='Visualizações',
+            y='Título',
             orientation='h',
             title='Top 10 Vídeos mais Visualizados'
         )
-        fig_top.update_layout(layout_base)
+        fig_top.update_layout(**GRAPH_LAYOUT_BASE)
         
         # 4. Correlação
         fig_corr = px.imshow(
-            filtered_df[['visualizacoes', 'curtidas', 'comentarios']].corr(),
+            filtered_df[['Visualizações', 'Curtidas', 'Comentários']].corr(),
             title='Correlação entre Métricas'
         )
-        fig_corr.update_layout(layout_base)
+        fig_corr.update_layout(**GRAPH_LAYOUT_BASE)
         
         # 5. Distribuição de engajamento
         fig_dist = px.scatter(
             filtered_df,
-            x='visualizacoes',
-            y='taxa_engajamento',
+            x='Visualizações',
+            y='Taxa de Engajamento',
             title='Distribuição do Engajamento',
-            hover_data=['titulo']
+            hover_data=['Título']
         )
-        fig_dist.update_layout(layout_base)
+        fig_dist.update_layout(**GRAPH_LAYOUT_BASE)
         
         # 6. Taxa de crescimento
         fig_growth = px.line(
             time_series_df,
-            x='data_publicacao',
-            y='media_visualizacoes_diarias',
+            x='Data de Publicação',
+            y='Média de Visualizações Diárias',
             title='Taxa de Crescimento Diário'
         )
-        fig_growth.update_layout(layout_base)
+        fig_growth.update_layout(**GRAPH_LAYOUT_BASE)
         
         # 7. Comparação de temporadas
         fig_seasons = update_seasons_comparison(filtered_df)
@@ -858,64 +905,71 @@ def update_graphs(sort_by, start_date, end_date, session_data):
                     tickangle=45,
                     showgrid=True,
                     gridcolor='rgba(128,128,128,0.2)',
-                    automargin=True
+                    automargin=True,
+                    tickfont=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
                 ),
                 yaxis=dict(
                     showgrid=True,
                     gridcolor='rgba(128,128,128,0.2)',
-                    automargin=True
+                    automargin=True,
+                    tickfont=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
                 ),
                 hoverlabel=dict(
                     bgcolor='#2b3e50',
                     font_size=12,
-                    font_family='Arial'
-                )
+                    font_family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                ),
+                title_font=dict(family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif')
             )
         
         return [fig_views, fig_engagement, fig_top, fig_corr, fig_dist, fig_growth, fig_seasons]
     except Exception as e:
         logger.error(f"Erro ao atualizar gráficos: {e}", exc_info=True)
-        # Retornar gráficos vazios com mensagem de erro
         error_fig = go.Figure()
         error_fig.add_annotation(
             text=f"Erro ao gerar gráfico: {str(e)}",
             xref="paper", yref="paper",
             x=0.5, y=0.5,
             showarrow=False,
-            font=dict(size=16, color="red")
+            font=dict(
+                size=16,
+                color="red",
+                family='"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+            )
         )
+        error_fig.update_layout(**GRAPH_LAYOUT_BASE)
         return [error_fig for _ in range(7)]
 
 def update_seasons_comparison(df):
     try:
-        if 'temporada' not in df.columns:
+        if 'Temporada' not in df.columns:
             return empty_figure("Dados de temporada não disponíveis")
             
         # Garantir que as colunas numéricas sejam do tipo correto
-        for col in ['visualizacoes', 'curtidas', 'comentarios']:
+        for col in ['Visualizações', 'Curtidas', 'Comentários']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         # Agrupar por temporada e calcular estatísticas
-        season_data = df.groupby('temporada').agg({
-            'visualizacoes': 'mean',
-            'curtidas': 'mean',
-            'comentarios': 'mean'
+        season_data = df.groupby('Temporada').agg({
+            'Visualizações': 'mean',
+            'Curtidas': 'mean',
+            'Comentários': 'mean'
         }).reset_index()
         
         # Verificar quantas temporadas temos
-        unique_seasons = season_data['temporada'].unique()
+        unique_seasons = season_data['Temporada'].unique()
         logger.info(f"Temporadas disponíveis: {unique_seasons}")
         
         if len(unique_seasons) >= 2:
             # Se temos mais de uma temporada, fazer comparação
             fig = px.bar(season_data,
-                        x='temporada',
-                        y=['visualizacoes', 'curtidas', 'comentarios'],
+                        x='Temporada',
+                        y=['Visualizações', 'Curtidas', 'Comentários'],
                         title='Comparação entre Temporadas',
                         barmode='group',
                         labels={
-                            'temporada': 'Temporada',
+                            'Temporada': 'Temporada',
                             'value': 'Média',
                             'variable': 'Métrica'
                         })
@@ -923,22 +977,22 @@ def update_seasons_comparison(df):
             # Se temos apenas uma temporada, mostrar métricas da temporada atual
             temp = unique_seasons[0]
             fig = px.bar(season_data,
-                        x='temporada',
-                        y=['visualizacoes', 'curtidas', 'comentarios'],
+                        x='Temporada',
+                        y=['Visualizações', 'Curtidas', 'Comentários'],
                         title=f'Métricas da Temporada {temp}',
                         barmode='group',
                         labels={
-                            'temporada': 'Temporada',
+                            'Temporada': 'Temporada',
                             'value': 'Média',
                             'variable': 'Métrica'
                         })
         
         # Aplicar layout base
         fig.update_layout(
-            template='plotly_dark',
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font_color='white',
+            template='plotly',
+            plot_bgcolor='rgba(249,250,251,0)',
+            paper_bgcolor='rgba(255,255,255,0)',
+            font_color='#1A202C',
             showlegend=True,
             margin=dict(t=30, l=10, r=10, b=10),
             autosize=True,
@@ -961,10 +1015,10 @@ def empty_figure(message):
             font=dict(size=16, color="white")
         )
         fig.update_layout(
-            template='plotly_dark',
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font_color='white',
+            template='plotly',
+            plot_bgcolor='rgba(249,250,251,0)',
+            paper_bgcolor='rgba(255,255,255,0)',
+            font_color='#1A202C',
             showlegend=False,
             margin=dict(t=30, l=10, r=10, b=10),
             autosize=True,
@@ -998,28 +1052,28 @@ def update_table(sort_by, start_date, end_date, session_data):
         display_df = filtered_df.copy()
         
         # Garantir que as colunas numéricas sejam do tipo correto
-        for col in ['visualizacoes', 'curtidas', 'comentarios', 'taxa_engajamento']:
+        for col in ['Visualizações', 'Curtidas', 'Comentários', 'Taxa de Engajamento']:
             if col in display_df.columns:
                 display_df[col] = pd.to_numeric(display_df[col], errors='coerce').fillna(0)
         
         # Formatar a coluna de data para exibição
-        if 'data_publicacao' in display_df.columns:
+        if 'Data de Publicação' in display_df.columns:
             try:
                 # Garantir que a coluna é datetime
-                if not pd.api.types.is_datetime64_any_dtype(display_df['data_publicacao']):
-                    display_df['data_publicacao'] = pd.to_datetime(display_df['data_publicacao'], errors='coerce')
+                if not pd.api.types.is_datetime64_any_dtype(display_df['Data de Publicação']):
+                    display_df['Data de Publicação'] = pd.to_datetime(display_df['Data de Publicação'], errors='coerce')
                 
                 # Formatar apenas se for datetime válido
-                display_df['data_publicacao'] = display_df['data_publicacao'].apply(
+                display_df['Data de Publicação'] = display_df['Data de Publicação'].apply(
                     lambda x: x.strftime('%d/%m/%Y') if pd.notna(x) else 'Data inválida'
                 )
             except Exception as e:
                 logger.error(f"Erro ao formatar data: {e}")
-                display_df['data_publicacao'] = 'Data inválida'
+                display_df['Data de Publicação'] = 'Data inválida'
         
         # Truncar títulos longos
-        if 'titulo' in display_df.columns:
-            display_df['titulo'] = display_df['titulo'].apply(truncate_title)
+        if 'Título' in display_df.columns:
+            display_df['Título'] = display_df['Título'].apply(truncate_title)
         
         # Criar a tabela
         table = dash_table.DataTable(
@@ -1027,29 +1081,33 @@ def update_table(sort_by, start_date, end_date, session_data):
             columns=[{'name': col, 'id': col} for col in display_df.columns],
             style_table={
                 'overflowX': 'auto',
-                'maxHeight': '400px'  # Limitar altura da tabela
+                'maxHeight': '400px',
+                'fontFamily': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
             },
             style_cell={
                 'textAlign': 'left',
-                'padding': '5px',  # Reduzir padding
+                'padding': '5px',
                 'whiteSpace': 'normal',
                 'height': 'auto',
-                'minWidth': '80px',  # Reduzir largura mínima
-                'maxWidth': '200px',  # Reduzir largura máxima
-                'fontSize': '12px'  # Reduzir tamanho da fonte
+                'minWidth': '80px',
+                'maxWidth': '200px',
+                'fontSize': '12px',
+                'fontFamily': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
             },
             style_header={
-                'backgroundColor': 'rgb(30, 30, 30)',
-                'color': 'white',
+                'backgroundColor': '#F7FAFC',
+                'color': '#1A202C',
                 'fontWeight': 'bold',
-                'padding': '5px',  # Reduzir padding do cabeçalho
-                'fontSize': '12px'  # Reduzir tamanho da fonte do cabeçalho
+                'padding': '5px',
+                'fontSize': '12px',
+                'fontFamily': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
             },
             style_data={
-                'backgroundColor': 'rgb(50, 50, 50)',
-                'color': 'white'
+                'backgroundColor': '#FFFFFF',
+                'color': '#1A202C',
+                'fontFamily': '"Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
             },
-            page_size=15,  # Aumentar número de linhas por página
+            page_size=15,
             sort_action='native',
             sort_mode='single',
             filter_action='native'
@@ -1082,14 +1140,34 @@ def update_debug_output(sort_by, start_date, end_date, session_data):
         # Gerar informações de debug
         debug_info = []
         debug_info.append(f"Total de registros: {len(filtered_df)}")
-        debug_info.append(f"Período: {filtered_df['data_publicacao'].min()} a {filtered_df['data_publicacao'].max()}")
+        debug_info.append(f"Período: {filtered_df['Data de Publicação'].min()} a {filtered_df['Data de Publicação'].max()}")
         debug_info.append(f"Colunas disponíveis: {', '.join(filtered_df.columns)}")
-        debug_info.append(f"Temporadas encontradas: {filtered_df['temporada'].unique().tolist()}")
+        debug_info.append(f"Temporadas encontradas: {filtered_df['Temporada'].unique().tolist()}")
         
         return "\n".join(debug_info)
     except Exception as e:
         logger.error(f"Erro ao gerar debug output: {e}", exc_info=True)
         return f"Erro ao gerar debug output: {str(e)}"
+
+# Callback para atualizar os gráficos
+@app.callback(
+    [Output("views-time-graph", "figure"),
+     Output("engagement-time-graph", "figure"),
+     Output("top-videos-graph", "figure"),
+     Output("correlation-graph", "figure"),
+     Output("engagement-distribution", "figure"),
+     Output("daily-growth-rate", "figure"),
+     Output("seasons-comparison", "figure")],
+    [Input("sort-dropdown", "value"),
+     Input("date-picker", "start_date"),
+     Input("date-picker", "end_date")],
+    [State('session-data', 'data')]
+)
+def update_all_graphs(sort_by, start_date, end_date, session_data):
+    """
+    Callback para atualizar todos os gráficos com base nos filtros selecionados
+    """
+    return update_graphs(sort_by, start_date, end_date, session_data)
 
 server = app.server  # Adicionar esta linha no fim do arquivo
 
