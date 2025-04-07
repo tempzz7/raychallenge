@@ -39,3 +39,6 @@ wheels/
 
 # Logs
 *.log
+
+#cache
+cache-directory/
